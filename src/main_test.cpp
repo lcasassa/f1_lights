@@ -22,7 +22,7 @@ constexpr uint8_t NUM_LEDS = 10;
 // Button Configuration
 constexpr uint8_t BUTTON_LEFT = 2;                     // Left button on pin 2 (pull-up)
 constexpr uint8_t BUTTON_RIGHT = 3;                    // Right button on pin 3 (pull-up)
-constexpr unsigned long BUTTON_DEBOUNCE_MS = 20;        // Debounce time in milliseconds
+constexpr unsigned long BUTTON_DEBOUNCE_MS = 10;        // Debounce time in milliseconds
 
 // Hardware Test Sequence
 constexpr unsigned long LED_ON_TIME_MS = 500;           // Each LED on for 500ms

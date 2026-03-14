@@ -28,7 +28,7 @@ constexpr uint8_t NUM_LEDS = 10;
 // Button Configuration
 constexpr uint8_t BUTTON_LEFT = 2;                      // Left button on pin 2 (pull-up)
 constexpr uint8_t BUTTON_RIGHT = 3;                     // Right button on pin 3 (pull-up)
-constexpr unsigned long BUTTON_DEBOUNCE_MS = 50;        // Debounce time in milliseconds
+constexpr unsigned long BUTTON_DEBOUNCE_MS = 10;        // Debounce time in milliseconds
 
 // F1 Start Sequence Timing (correct F1 specifications)
 constexpr unsigned long LIGHT_INTERVAL_MS = 1000;       // 1 second (1000ms) between each light turning on
