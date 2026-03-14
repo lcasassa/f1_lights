@@ -1,0 +1,46 @@
+# PlatformIO
+.pio/
+.platformio/
+build/
+*.o
+*.a
+*.so
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.Python
+
+# Firmware builds
+.pio/build/
+*.hex
+*.elf
+*.bin
+
+# Environment files
+.env
+.env.local
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# PlatformIO cache
+.piocache
+
