@@ -11,7 +11,7 @@ namespace {
 //
 // Adjust the pins below to match your actual wiring:
 constexpr uint8_t PIN_MAP[] = {
-  13,  // POS-1  (Row 1, leftmost)
+  A0,  // POS-1  (Row 1, leftmost)
   4,   // POS-2  (Row 1)
   12,  // POS-3  (Row 1)
   11,  // POS-4  (Row 1)
@@ -26,8 +26,8 @@ constexpr uint8_t PIN_MAP[] = {
 constexpr uint8_t NUM_LEDS = 10;
 
 // Button Configuration
-constexpr uint8_t BUTTON_LEFT = 2;                      // Left button on pin 2 (pull-up)
-constexpr uint8_t BUTTON_RIGHT = 3;                     // Right button on pin 3 (pull-up)
+constexpr uint8_t BUTTON_LEFT = 3;                      // Left button on pin 2 (pull-up)
+constexpr uint8_t BUTTON_RIGHT = 2;                     // Right button on pin 3 (pull-up)
 constexpr unsigned long BUTTON_DEBOUNCE_MS = 10;        // Debounce time in milliseconds
 
 // F1 Start Sequence Timing (correct F1 specifications)
@@ -147,8 +147,8 @@ void setup() {
   Serial.println("All LEDs initialized.");
   Serial.println("Waiting for button press...\n");
 
-  // Seed random number generator
-  randomSeed(analogRead(A0));
+  // Seed random number generator with unconnected analog pin for true randomness
+  randomSeed(analogRead(A5));
 
   // Start in IDLE state, waiting for button press
   currentState = IDLE;
