@@ -39,16 +39,22 @@ constexpr unsigned long RESTART_DELAY_MS = 3000;        // Delay before next seq
 // State machine
 enum State {
   IDLE,           // Waiting to start sequence
-  LIGHTING_UP,    // Lights turning on left-to-right (both rows simultaneously, 100ms intervals)
-  ALL_ON,         // All lights on for 500ms before GO
+  LIGHTING_UP,    // Lights turning on left-to-right (both rows simultaneously)
+  ALL_ON,         // All lights on for random delay
   BLACKOUT,       // All lights off (START!)
-  RESTART_WAIT    // Waiting before next sequence
+  WAITING_FOR_PRESS,  // Waiting for button press after GO
+  WINNER          // Winner state - winner's row stays ON
 };
 
 State currentState = IDLE;
 unsigned long stateStartMs = 0;
 uint8_t litColumnCount = 0;  // How many columns are currently lit (0-5)
 unsigned long randomGoDelay = 0;  // Random delay before GO signal
+
+// Game state
+uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player
+bool leftButtonPressedInGame = false;
+bool rightButtonPressedInGame = false;
 
 // Button state tracking
 bool buttonLeftPressed = false;
@@ -61,6 +67,20 @@ unsigned long lastButtonCheckMs = 0;
 void allLedsOff() {
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
     digitalWrite(PIN_MAP[i], LOW);
+  }
+}
+
+void leftRowOn() {
+  // Turn on POS-1 to POS-5 (top row)
+  for (uint8_t i = 0; i < 5; i++) {
+    digitalWrite(PIN_MAP[i], HIGH);
+  }
+}
+
+void rightRowOn() {
+  // Turn on POS-6 to POS-10 (bottom row)
+  for (uint8_t i = 5; i < NUM_LEDS; i++) {
+    digitalWrite(PIN_MAP[i], HIGH);
   }
 }
 
@@ -92,8 +112,9 @@ void setup() {
 
   Serial.println("Button Configuration:");
   Serial.println("  Pin 2 (Left Button):  Pull-up enabled");
-  Serial.println("  Pin 3 (Right Button): Pull-up enabled");
-  Serial.println("  Press BOTH buttons simultaneously to start sequence\n");
+  Serial.println("  Pin 2 (Left Button):  Left player - controls top row");
+  Serial.println("  Pin 3 (Right Button): Right player - controls bottom row");
+  Serial.println("  Press BOTH buttons to start sequence\n");
 
   Serial.println("Pin Mapping:");
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -104,11 +125,12 @@ void setup() {
   }
   Serial.println();
 
-  Serial.println("Sequence (F1 Standard):");
+  Serial.println("Sequence (F1 Start Light Game):");
   Serial.println("  1. Five lights illuminate left-to-right (1 second intervals, both rows)");
   Serial.println("  2. All lights on for random delay (1-3 seconds)");
   Serial.println("  3. ALL LIGHTS OFF = GO SIGNAL!");
-  Serial.println("  4. Sequence repeats after 3 seconds\n");
+  Serial.println("  4. FIRST player to press button WINS!");
+  Serial.println("  5. Winner's row stays ON until both buttons pressed to restart\n");
 
   // Initialize LED pins
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -205,25 +227,60 @@ void loop() {
     }
 
     case BLACKOUT: {
-      // Keep lights off for 500ms
+      // Keep lights off - waiting for button press
       if (elapsedInState >= 500) {
-        currentState = RESTART_WAIT;
+        currentState = WAITING_FOR_PRESS;
         stateStartMs = now;
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] Waiting to restart sequence...");
+        Serial.println("ms] *** GO! - Waiting for button press... ***");
       }
       break;
     }
 
-    case RESTART_WAIT: {
-      // Wait before returning to IDLE state for next button press
-      if (elapsedInState >= RESTART_DELAY_MS) {
-        currentState = IDLE;
+    case WAITING_FOR_PRESS: {
+      // Check which player pressed first
+      if (buttonLeftPressed && !leftButtonPressedInGame) {
+        // Left player pressed first - LEFT WINS!
+        leftButtonPressedInGame = true;
+        winner = 1;
+        currentState = WINNER;
         stateStartMs = now;
+        allLedsOff();
+        leftRowOn();
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] Sequence complete - waiting for button press...");
+        Serial.println("ms] 🏆 LEFT PLAYER WINS! - Top row stays ON");
+      } else if (buttonRightPressed && !rightButtonPressedInGame) {
+        // Right player pressed first - RIGHT WINS!
+        rightButtonPressedInGame = true;
+        winner = 2;
+        currentState = WINNER;
+        stateStartMs = now;
+        allLedsOff();
+        rightRowOn();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] 🏆 RIGHT PLAYER WINS! - Bottom row stays ON");
+      }
+      break;
+    }
+
+    case WINNER: {
+      // Winner's row is ON - wait for both buttons to restart
+      if (buttonLeftPressed && buttonRightPressed) {
+        // Both buttons pressed - reset game
+        currentState = IDLE;
+        stateStartMs = now;
+        winner = 0;
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
+        allLedsOff();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] ═══ BOTH BUTTONS PRESSED - SEQUENCE RESTART ═══");
       }
       break;
     }
