@@ -43,7 +43,8 @@ enum State {
   ALL_ON,         // All lights on for random delay
   BLACKOUT,       // All lights off (START!)
   WAITING_FOR_PRESS,  // Waiting for button press after GO
-  WINNER          // Winner state - winner's row stays ON
+  WINNER,         // Winner state - winner's row stays ON, waiting for button release
+  WINNER_WAIT_RESTART  // Winner displayed, waiting for both buttons pressed to restart
 };
 
 State currentState = IDLE;
@@ -297,18 +298,32 @@ void loop() {
     }
 
     case WINNER: {
-      // Winner's row is ON - wait for both buttons to restart
-      if (buttonLeftPressed && buttonRightPressed) {
-        // Both buttons pressed - reset game
-        currentState = IDLE;
+      // Winner's row is ON - wait for buttons to be released
+      if (!buttonLeftPressed && !buttonRightPressed) {
+        // Both buttons released - transition to wait restart state
+        currentState = WINNER_WAIT_RESTART;
         stateStartMs = now;
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] Buttons released - waiting to restart...");
+      }
+      break;
+    }
+
+    case WINNER_WAIT_RESTART: {
+      // Winner still displayed - wait for both buttons pressed to start sequence
+      if (buttonLeftPressed && buttonRightPressed) {
+        // Both buttons pressed - restart sequence immediately
+        currentState = LIGHTING_UP;
+        stateStartMs = now;
+        litColumnCount = 0;
         winner = 0;
         leftButtonPressedInGame = false;
         rightButtonPressedInGame = false;
         allLedsOff();
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] ═══ BOTH BUTTONS PRESSED - SEQUENCE RESTART ═══");
+        Serial.println("ms] ═══ BOTH BUTTONS PRESSED - NEW SEQUENCE START ═══");
       }
       break;
     }
