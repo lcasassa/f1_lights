@@ -193,8 +193,8 @@ void loop() {
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
-          // Turn OFF left player's middle LED (POS-3 = index 2) as penalty
-          digitalWrite(PIN_MAP[2], LOW);
+          // Turn ON left player's middle LED (POS-3 = index 2) as penalty indicator
+          digitalWrite(PIN_MAP[2], HIGH);
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
@@ -207,8 +207,8 @@ void loop() {
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
-          // Turn OFF right player's middle LED (POS-8 = index 7) as penalty
-          digitalWrite(PIN_MAP[7], LOW);
+          // Turn ON right player's middle LED (POS-8 = index 7) as penalty indicator
+          digitalWrite(PIN_MAP[7], HIGH);
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
@@ -260,8 +260,8 @@ void loop() {
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
-          // Turn OFF left player's middle LED (POS-3 = index 2) as penalty
-          digitalWrite(PIN_MAP[2], LOW);
+          // Turn ON left player's middle LED (POS-3 = index 2) as penalty indicator
+          digitalWrite(PIN_MAP[2], HIGH);
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
@@ -274,8 +274,8 @@ void loop() {
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
-          // Turn OFF right player's middle LED (POS-8 = index 7) as penalty
-          digitalWrite(PIN_MAP[7], LOW);
+          // Turn ON right player's middle LED (POS-8 = index 7) as penalty indicator
+          digitalWrite(PIN_MAP[7], HIGH);
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
