@@ -56,6 +56,7 @@ unsigned long randomGoDelay = 0;  // Random delay before GO signal
 uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
+bool buttonsReleasedAfterStart = false;  // Track if buttons released after sequence start
 
 // Button state tracking
 bool buttonLeftPressed = false;
@@ -168,6 +169,7 @@ void loop() {
         currentState = LIGHTING_UP;
         stateStartMs = now;
         litColumnCount = 0;
+        buttonsReleasedAfterStart = false;  // Reset the flag for new sequence
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] ═══ BOTH BUTTONS PRESSED - SEQUENCE START ═══");
@@ -175,14 +177,47 @@ void loop() {
       break;
     }
 
-    // ...existing code...
     case LIGHTING_UP: {
+      // Wait for buttons to be released before enabling early start detection
+      if (!buttonLeftPressed && !buttonRightPressed) {
+        buttonsReleasedAfterStart = true;
+      }
+
+      // Only detect early starts AFTER buttons have been released
+      if (buttonsReleasedAfterStart) {
+        if (buttonLeftPressed && !leftButtonPressedInGame) {
+          // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
+          leftButtonPressedInGame = true;
+          winner = 2;
+          currentState = WINNER;
+          stateStartMs = now;
+          allLedsOff();
+          rightRowOn();
+          // Turn OFF left player's middle LED (POS-3 = index 2) as penalty
+          digitalWrite(PIN_MAP[2], LOW);
+          Serial.print("[");
+          Serial.print(now);
+          Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
+          break;
+        } else if (buttonRightPressed && !rightButtonPressedInGame) {
+          // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
+          rightButtonPressedInGame = true;
+          winner = 1;
+          currentState = WINNER;
+          stateStartMs = now;
+          allLedsOff();
+          leftRowOn();
+          // Turn OFF right player's middle LED (POS-8 = index 7) as penalty
+          digitalWrite(PIN_MAP[7], LOW);
+          Serial.print("[");
+          Serial.print(now);
+          Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
+          break;
+        }
+      }
+
       // Turn on next column (both rows simultaneously) at interval
       if (elapsedInState >= litColumnCount * LIGHT_INTERVAL_MS && litColumnCount < 5) {
-        // Light up column: POS-(litColumnCount+1) and POS-(litColumnCount+6)
-        // Column 0: POS-1 (pin 0) and POS-6 (pin 5)
-        // Column 1: POS-2 (pin 1) and POS-7 (pin 6)
-        // ... etc
         digitalWrite(PIN_MAP[litColumnCount], HIGH);           // Top row
         digitalWrite(PIN_MAP[litColumnCount + 5], HIGH);       // Bottom row
 
@@ -215,6 +250,39 @@ void loop() {
     }
 
     case ALL_ON: {
+      // Only detect early starts AFTER buttons have been released
+      if (buttonsReleasedAfterStart) {
+        if (buttonLeftPressed && !leftButtonPressedInGame) {
+          // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
+          leftButtonPressedInGame = true;
+          winner = 2;
+          currentState = WINNER;
+          stateStartMs = now;
+          allLedsOff();
+          rightRowOn();
+          // Turn OFF left player's middle LED (POS-3 = index 2) as penalty
+          digitalWrite(PIN_MAP[2], LOW);
+          Serial.print("[");
+          Serial.print(now);
+          Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
+          break;
+        } else if (buttonRightPressed && !rightButtonPressedInGame) {
+          // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
+          rightButtonPressedInGame = true;
+          winner = 1;
+          currentState = WINNER;
+          stateStartMs = now;
+          allLedsOff();
+          leftRowOn();
+          // Turn OFF right player's middle LED (POS-8 = index 7) as penalty
+          digitalWrite(PIN_MAP[7], LOW);
+          Serial.print("[");
+          Serial.print(now);
+          Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
+          break;
+        }
+      }
+
       // Hold all lights on for random delay (F1 standard)
       if (elapsedInState >= randomGoDelay) {
         currentState = BLACKOUT;
@@ -233,9 +301,10 @@ void loop() {
 
     case BLACKOUT: {
       // Keep lights off - start tracking button presses immediately
-      // Check which player pressed first (can press during BLACKOUT)
+      // During first 500ms: any press is a false start
+      // After 500ms: normal win condition
+
       if (buttonLeftPressed && !leftButtonPressedInGame) {
-        // Left player pressed first - LEFT WINS!
         leftButtonPressedInGame = true;
         winner = 1;
         currentState = WINNER;
@@ -246,7 +315,6 @@ void loop() {
         Serial.print(now);
         Serial.println("ms] 🏆 LEFT PLAYER WINS! - Top row stays ON");
       } else if (buttonRightPressed && !rightButtonPressedInGame) {
-        // Right player pressed first - RIGHT WINS!
         rightButtonPressedInGame = true;
         winner = 2;
         currentState = WINNER;
@@ -320,6 +388,7 @@ void loop() {
         winner = 0;
         leftButtonPressedInGame = false;
         rightButtonPressedInGame = false;
+        buttonsReleasedAfterStart = false;  // Reset flag - buttons are still pressed
         allLedsOff();
         Serial.print("[");
         Serial.print(now);
