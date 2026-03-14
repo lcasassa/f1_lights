@@ -219,6 +219,10 @@ void loop() {
         currentState = BLACKOUT;
         stateStartMs = now;
         allLedsOff();
+        // Reset button press tracking for the game
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
+        winner = 0;
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] *** LIGHTS OUT - GO! ***");
@@ -227,12 +231,36 @@ void loop() {
     }
 
     case BLACKOUT: {
-      // Keep lights off - waiting for button press
-      if (elapsedInState >= 500) {
+      // Keep lights off - start tracking button presses immediately
+      // Check which player pressed first (can press during BLACKOUT)
+      if (buttonLeftPressed && !leftButtonPressedInGame) {
+        // Left player pressed first - LEFT WINS!
+        leftButtonPressedInGame = true;
+        winner = 1;
+        currentState = WINNER;
+        stateStartMs = now;
+        allLedsOff();
+        leftRowOn();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] 🏆 LEFT PLAYER WINS! - Top row stays ON");
+      } else if (buttonRightPressed && !rightButtonPressedInGame) {
+        // Right player pressed first - RIGHT WINS!
+        rightButtonPressedInGame = true;
+        winner = 2;
+        currentState = WINNER;
+        stateStartMs = now;
+        allLedsOff();
+        rightRowOn();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] 🏆 RIGHT PLAYER WINS! - Bottom row stays ON");
+      }
+
+      // If no one has pressed yet after 500ms, move to waiting state
+      if (elapsedInState >= 500 && winner == 0) {
         currentState = WAITING_FOR_PRESS;
         stateStartMs = now;
-        leftButtonPressedInGame = false;
-        rightButtonPressedInGame = false;
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] *** GO! - Waiting for button press... ***");
