@@ -221,3 +221,57 @@ def test_full_f1_sequence(sim: F1Sim):
     }
 
 
+def test_tie_both_buttons_pressed_simultaneously(sim: F1Sim):
+    """When both players press at the same time after BLACKOUT, it's a tie — both rows blink."""
+
+    # Start sequence with both buttons
+    sim.advance_millis(100)
+    sim.press_both()
+    sim.loop()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Release both so early-start detection arms
+    sim.release_both()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Advance through LIGHTING_UP (5 columns × 1s)
+    for _ in range(5):
+        sim.advance_millis(1000)
+        sim.loop()
+
+    # Transition to ALL_ON
+    sim.advance_millis(1000)
+    sim.loop()
+
+    # Advance past max random delay -> BLACKOUT
+    sim.advance_millis(3001)
+    sim.loop()
+    assert sim.led_states() == {i: False for i in range(1, 11)}
+
+    # Both players press at the same time -> TIE
+    sim.advance_millis(15)
+    sim.press_both()
+    sim.loop()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # On a blink-on phase, both rows should be on
+    # Align to a known blink-on phase (millis / 250 is even)
+    current = sim.get_millis()
+    phase = (current // 250) % 2
+    if phase != 0:
+        # Advance to next even phase
+        sim.advance_millis(250 - (current % 250))
+        sim.loop()
+
+    assert sim.top_row() == [True, True, True, True, True]
+    assert sim.bottom_row() == [True, True, True, True, True]
+
+    # On a blink-off phase, both rows should be off
+    sim.advance_millis(250)
+    sim.loop()
+
+    assert sim.top_row() == [False, False, False, False, False]
+    assert sim.bottom_row() == [False, False, False, False, False]
