@@ -4,6 +4,18 @@ import pytest
 from f1_sim import F1Sim
 
 
+def start_sequence(sim: F1Sim):
+    """Press both buttons, release both, wait for LIGHTING_UP to begin."""
+    sim.press_both()
+    sim.advance_millis(15)
+    sim.loop()   # IDLE/WINNER_WAIT_RESTART -> WAIT_RELEASE
+    sim.release_both()
+    sim.advance_millis(15)
+    sim.loop()   # WAIT_RELEASE -> LIGHTING_UP, column 1 lights up
+    sim.advance_millis(1)
+    sim.loop()   # LIGHTING_UP: column 1 on
+
+
 @pytest.mark.parametrize("early_side, expected_top, expected_bottom, penalty_pos", [
     # Left early start: right row wins + POS-3 (top row, index 2) lit as left's penalty
     ("left",  [False, False, True, False, False], [True, True, True, True, True], 3),
@@ -14,17 +26,9 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     """Early button press during LIGHTING_UP disqualifies that player.
     The opposing row lights up, and the guilty player's middle LED is lit as a penalty.
     """
-    # Start sequence with both buttons
+    # Start sequence (press both, release both, column 1 on)
     sim.advance_millis(100)
-    sim.press_both()
-    sim.loop()
-    sim.advance_millis(15)
-    sim.loop()
-
-    # Release both so early-start detection arms
-    sim.release_both()
-    sim.advance_millis(15)
-    sim.loop()
+    start_sequence(sim)
 
     # Column 1 is now on — sequence is in progress
     assert sim.led_state(1) is True
@@ -45,7 +49,7 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     # Penalty LED (middle LED of the guilty player's row) is also lit
     assert sim.led_state(penalty_pos) is True
 
-    # Release left/right button -> WINNER state sees both released -> WINNER_DISPLAY_DELAY
+    # Release button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
     if early_side == "left":
         sim.release_left()
     else:
@@ -57,12 +61,8 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     sim.advance_millis(201)
     sim.loop()
 
-    # Press BOTH buttons -> restart -> LIGHTING_UP, column 1 turns on immediately
-    sim.press_both()
-    sim.advance_millis(15)
-    sim.loop()   # WINNER_WAIT_RESTART: detects both pressed, transitions to LIGHTING_UP
-    sim.advance_millis(1)
-    sim.loop()   # LIGHTING_UP: column 1 lights up
+    # Press BOTH buttons -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
+    start_sequence(sim)
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
@@ -107,12 +107,8 @@ def test_winner_display_not_skippable_before_200ms(sim_at_winner_display: F1Sim)
     sim.advance_millis(41)   # 160 + 41 = 201ms total
     sim.loop()
 
-    # Pressing both now must restart the sequence
-    sim.press_both()
-    sim.advance_millis(15)
-    sim.loop()   # transitions to LIGHTING_UP
-    sim.advance_millis(1)
-    sim.loop()   # column 1 lights up
+    # Press BOTH buttons -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
+    start_sequence(sim)
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
@@ -126,24 +122,10 @@ def test_full_f1_sequence(sim: F1Sim):
     # After setup: all LEDs off (IDLE state)
     assert sim.led_states() == {i: False for i in range(1, 11)}
 
-    # Press BOTH buttons to start the sequence
+    # Start sequence (press both, release both, column 1 on)
     sim.advance_millis(100)
-    sim.press_both()
-    sim.loop()
-    sim.advance_millis(15)
-    sim.loop()
+    start_sequence(sim)
 
-    assert sim.led_states() == {
-        1: True, 2: False, 3: False, 4: False, 5: False,
-        6: True, 7: False, 8: False, 9: False, 10: False,
-    }
-
-    # Release both buttons so early-start detection can arm
-    sim.release_both()
-    sim.advance_millis(15)
-    sim.loop()
-
-    # Column 1 still on
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
         6: True, 7: False, 8: False, 9: False, 10: False,
@@ -199,7 +181,7 @@ def test_full_f1_sequence(sim: F1Sim):
     assert sim.top_row() == [False, False, False, False, False]
     assert sim.bottom_row() == [True, True, True, True, True]
 
-    # Release right button -> WINNER state sees both released -> WINNER_DISPLAY_DELAY
+    # Release right button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
     sim.release_right()
     sim.advance_millis(15)
     sim.loop()
@@ -208,12 +190,8 @@ def test_full_f1_sequence(sim: F1Sim):
     sim.advance_millis(201)
     sim.loop()
 
-    # Press BOTH buttons -> restart -> LIGHTING_UP, column 1 turns on immediately
-    sim.press_both()
-    sim.advance_millis(15)
-    sim.loop()   # WINNER_WAIT_RESTART: detects both pressed, transitions to LIGHTING_UP
-    sim.advance_millis(1)
-    sim.loop()   # LIGHTING_UP: column 1 lights up
+    # Restart: press both -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
+    start_sequence(sim)
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
@@ -224,17 +202,9 @@ def test_full_f1_sequence(sim: F1Sim):
 def test_tie_both_buttons_pressed_simultaneously(sim: F1Sim):
     """When both players press at the same time after BLACKOUT, it's a tie — both rows blink."""
 
-    # Start sequence with both buttons
+    # Start sequence (press both, release both, column 1 on)
     sim.advance_millis(100)
-    sim.press_both()
-    sim.loop()
-    sim.advance_millis(15)
-    sim.loop()
-
-    # Release both so early-start detection arms
-    sim.release_both()
-    sim.advance_millis(15)
-    sim.loop()
+    start_sequence(sim)
 
     # Advance through LIGHTING_UP (5 columns × 1s)
     for _ in range(5):

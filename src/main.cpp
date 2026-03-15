@@ -41,6 +41,7 @@ constexpr unsigned long BLINK_DURATION_MS = 2000;       // Blink for 2 seconds t
 // State machine
 enum State {
   IDLE,           // Waiting to start sequence
+  WAIT_RELEASE,   // Both buttons pressed, waiting for both to be released before starting
   LIGHTING_UP,    // Lights turning on left-to-right (both rows simultaneously)
   ALL_ON,         // All lights on for random delay
   BLACKOUT,       // All lights off (START!)
@@ -61,7 +62,6 @@ bool earlyStart = false;  // Whether the win was due to a false start
 unsigned long winnerDeclaredMs = 0;  // When the winner was declared (for blink duration)
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
-bool buttonsReleasedAfterStart = false;  // Track if buttons released after sequence start
 
 // Button state tracking
 bool buttonLeftPressed = false;
@@ -202,26 +202,32 @@ void loop() {
     case IDLE: {
       // Wait for both buttons to be pressed simultaneously
       if (buttonLeftPressed && buttonRightPressed) {
+        currentState = WAIT_RELEASE;
+        stateStartMs = now;
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] ═══ BOTH PRESSED - RELEASE TO START ═══");
+      }
+      break;
+    }
+
+    case WAIT_RELEASE: {
+      // Wait for both buttons to be released before starting the sequence
+      if (!buttonLeftPressed && !buttonRightPressed) {
         currentState = LIGHTING_UP;
         stateStartMs = now;
         litColumnCount = 0;
-        buttonsReleasedAfterStart = false;  // Reset the flag for new sequence
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] ═══ BUTTON PRESSED - SEQUENCE START ═══");
+        Serial.println("ms] ═══ BUTTONS RELEASED - SEQUENCE START ═══");
       }
       break;
     }
 
     case LIGHTING_UP: {
-      // Wait for buttons to be released before enabling early start detection
-      if (!buttonLeftPressed && !buttonRightPressed) {
-        buttonsReleasedAfterStart = true;
-      }
-
-      // Only detect early starts AFTER buttons have been released
-      if (buttonsReleasedAfterStart) {
-        if (buttonLeftPressed && !leftButtonPressedInGame) {
+      // Early start detection — buttons are guaranteed released before entering
+      // this state (via WAIT_RELEASE), so any press is an early start.
+      if (buttonLeftPressed && !leftButtonPressedInGame) {
           // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
           leftButtonPressedInGame = true;
           winner = 2;
@@ -254,7 +260,6 @@ void loop() {
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
           break;
         }
-      }
 
       // Turn on next column (both rows simultaneously) at interval
       if (elapsedInState >= litColumnCount * LIGHT_INTERVAL_MS && litColumnCount < 5) {
@@ -290,9 +295,8 @@ void loop() {
     }
 
     case ALL_ON: {
-      // Only detect early starts AFTER buttons have been released
-      if (buttonsReleasedAfterStart) {
-        if (buttonLeftPressed && !leftButtonPressedInGame) {
+      // Early start detection — any press is an early start
+      if (buttonLeftPressed && !leftButtonPressedInGame) {
           // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
           leftButtonPressedInGame = true;
           winner = 2;
@@ -325,7 +329,6 @@ void loop() {
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
           break;
         }
-      }
 
       // Hold all lights on for random delay (F1 standard)
       if (elapsedInState >= randomGoDelay) {
@@ -483,18 +486,15 @@ void loop() {
 
       // Winner still displayed - wait for both buttons pressed to restart sequence
       if (buttonLeftPressed && buttonRightPressed) {
-        // Either button pressed - restart sequence immediately
-        currentState = LIGHTING_UP;
+        currentState = WAIT_RELEASE;
         stateStartMs = now;
-        litColumnCount = 0;
         winner = 0;
         leftButtonPressedInGame = false;
         rightButtonPressedInGame = false;
-        buttonsReleasedAfterStart = false;  // Reset flag - button is still pressed
         allLedsOff();
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] ═══ BUTTON PRESSED - NEW SEQUENCE START ═══");
+        Serial.println("ms] ═══ BOTH PRESSED - RELEASE TO RESTART ═══");
       }
       break;
     }
