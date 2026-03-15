@@ -35,6 +35,7 @@ constexpr unsigned long LIGHT_INTERVAL_MS = 1000;       // 1 second (1000ms) bet
 constexpr unsigned long MIN_RANDOM_DELAY_MS = 1000;     // Min random delay after all lights on
 constexpr unsigned long MAX_RANDOM_DELAY_MS = 3000;     // Max random delay after all lights on
 constexpr unsigned long RESTART_DELAY_MS = 3000;        // Delay before next sequence starts
+constexpr unsigned long BLINK_INTERVAL_MS = 250;        // Winner row blink half-period (250ms on, 250ms off)
 
 // State machine
 enum State {
@@ -55,6 +56,7 @@ unsigned long randomGoDelay = 0;  // Random delay before GO signal
 
 // Game state
 uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player
+bool earlyStart = false;  // Whether the win was due to a false start
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
 bool buttonsReleasedAfterStart = false;  // Track if buttons released after sequence start
@@ -155,6 +157,22 @@ void setup() {
   stateStartMs = millis();
 }
 
+void updateWinnerBlink() {
+  // Blink winner's row (and penalty LED for early starts) at BLINK_INTERVAL_MS
+  bool blinkOn = ((millis() / BLINK_INTERVAL_MS) % 2) == 0;
+
+  allLedsOff();
+  if (blinkOn) {
+    if (winner == 1) {
+      leftRowOn();
+      if (earlyStart) digitalWrite(PIN_MAP[7], HIGH);  // right player's penalty LED
+    } else if (winner == 2) {
+      rightRowOn();
+      if (earlyStart) digitalWrite(PIN_MAP[2], HIGH);  // left player's penalty LED
+    }
+  }
+}
+
 void loop() {
   // Always update button states
   updateButtonStates();
@@ -189,6 +207,7 @@ void loop() {
           // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
           leftButtonPressedInGame = true;
           winner = 2;
+          earlyStart = true;
           currentState = WINNER;
           stateStartMs = now;
           allLedsOff();
@@ -203,6 +222,7 @@ void loop() {
           // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
           rightButtonPressedInGame = true;
           winner = 1;
+          earlyStart = true;
           currentState = WINNER;
           stateStartMs = now;
           allLedsOff();
@@ -256,6 +276,7 @@ void loop() {
           // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
           leftButtonPressedInGame = true;
           winner = 2;
+          earlyStart = true;
           currentState = WINNER;
           stateStartMs = now;
           allLedsOff();
@@ -270,6 +291,7 @@ void loop() {
           // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
           rightButtonPressedInGame = true;
           winner = 1;
+          earlyStart = true;
           currentState = WINNER;
           stateStartMs = now;
           allLedsOff();
@@ -307,6 +329,7 @@ void loop() {
       if (buttonLeftPressed && !leftButtonPressedInGame) {
         leftButtonPressedInGame = true;
         winner = 1;
+        earlyStart = false;
         currentState = WINNER;
         stateStartMs = now;
         allLedsOff();
@@ -317,6 +340,7 @@ void loop() {
       } else if (buttonRightPressed && !rightButtonPressedInGame) {
         rightButtonPressedInGame = true;
         winner = 2;
+        earlyStart = false;
         currentState = WINNER;
         stateStartMs = now;
         allLedsOff();
@@ -343,6 +367,7 @@ void loop() {
         // Left player pressed first - LEFT WINS!
         leftButtonPressedInGame = true;
         winner = 1;
+        earlyStart = false;
         currentState = WINNER;
         stateStartMs = now;
         allLedsOff();
@@ -354,6 +379,7 @@ void loop() {
         // Right player pressed first - RIGHT WINS!
         rightButtonPressedInGame = true;
         winner = 2;
+        earlyStart = false;
         currentState = WINNER;
         stateStartMs = now;
         allLedsOff();
@@ -366,6 +392,9 @@ void loop() {
     }
 
     case WINNER: {
+      // Blink the winner row
+      updateWinnerBlink();
+
       // Winner's row is ON - wait for buttons to be released
       if (!buttonLeftPressed && !buttonRightPressed) {
         // Both buttons released - transition to display delay state (200ms minimum display time)
@@ -379,6 +408,9 @@ void loop() {
     }
 
     case WINNER_DISPLAY_DELAY: {
+      // Keep blinking the winner row
+      updateWinnerBlink();
+
       // Display winner result for 200ms minimum
       if (elapsedInState >= 200) {
         // 200ms has passed - now ready to accept button press for restart
@@ -392,6 +424,9 @@ void loop() {
     }
 
     case WINNER_WAIT_RESTART: {
+      // Keep blinking the winner row
+      updateWinnerBlink();
+
       // Winner still displayed - wait for both buttons pressed to restart sequence
       if (buttonLeftPressed && buttonRightPressed) {
         // Either button pressed - restart sequence immediately
