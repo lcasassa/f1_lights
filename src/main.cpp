@@ -116,7 +116,7 @@ void setup() {
   Serial.println("Button Configuration:");
   Serial.println("  Pin 2 (Left Button):  Left player - controls top row");
   Serial.println("  Pin 3 (Right Button): Right player - controls bottom row");
-  Serial.println("  Press EITHER button to start sequence\n");
+  Serial.println("  Press BOTH buttons simultaneously to start sequence\n");
 
   Serial.println("Pin Mapping:");
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -164,8 +164,8 @@ void loop() {
 
   switch (currentState) {
     case IDLE: {
-      // Wait for either button to be pressed
-      if (buttonLeftPressed || buttonRightPressed) {
+      // Wait for both buttons to be pressed simultaneously
+      if (buttonLeftPressed && buttonRightPressed) {
         currentState = LIGHTING_UP;
         stateStartMs = now;
         litColumnCount = 0;
@@ -392,8 +392,8 @@ void loop() {
     }
 
     case WINNER_WAIT_RESTART: {
-      // Winner still displayed - wait for either button pressed to start sequence
-      if (buttonLeftPressed || buttonRightPressed) {
+      // Winner still displayed - wait for both buttons pressed to restart sequence
+      if (buttonLeftPressed && buttonRightPressed) {
         // Either button pressed - restart sequence immediately
         currentState = LIGHTING_UP;
         stateStartMs = now;
