@@ -5,11 +5,8 @@ description = "Add your description here"
 requires-python = ">=3.9"
 dependencies = [
     "pytest>=8.4.2",
-    "setuptools",
+    "setuptools>=82.0.1",
 ]
-
-[dependency-groups]
-dev = ["pytest"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
