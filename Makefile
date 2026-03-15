@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean
+.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -23,6 +23,7 @@ help:
 	@echo ""
 	@echo "DESKTOP SIMULATION (Python):"
 	@echo "  make sim               - Build shared library for Python simulation"
+	@echo "  make test              - Build sim library and run pytest"
 	@echo "  make sim-clean         - Remove simulation build artifacts"
 	@echo ""
 	@echo "UTILITY:"
@@ -87,6 +88,9 @@ $(SIM_LIB): sim/arduino_stub.cpp sim/sim_bridge.cpp src/main.cpp sim/Arduino.h
 sim-clean:
 	rm -f libf1sim.dylib libf1sim.so
 	@echo "Simulation artifacts removed."
+
+test: sim
+	python -m pytest tests/ -v
 
 .DEFAULT_GOAL := help
 
