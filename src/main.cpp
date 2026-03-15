@@ -55,7 +55,7 @@ uint8_t litColumnCount = 0;  // How many columns are currently lit (0-5)
 unsigned long randomGoDelay = 0;  // Random delay before GO signal
 
 // Game state
-uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player
+uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player, 3 = tie
 bool earlyStart = false;  // Whether the win was due to a false start
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
@@ -166,6 +166,9 @@ void updateWinnerBlink() {
     if (winner == 1) {
       leftRowOn();
     } else if (winner == 2) {
+      rightRowOn();
+    } else if (winner == 3) {
+      leftRowOn();
       rightRowOn();
     }
   }
@@ -329,10 +332,22 @@ void loop() {
 
     case BLACKOUT: {
       // Keep lights off - start tracking button presses immediately
-      // During first 500ms: any press is a false start
-      // After 500ms: normal win condition
 
-      if (buttonLeftPressed && !leftButtonPressedInGame) {
+      if (buttonLeftPressed && buttonRightPressed && !leftButtonPressedInGame && !rightButtonPressedInGame) {
+        // TIE - both pressed at the same time!
+        leftButtonPressedInGame = true;
+        rightButtonPressedInGame = true;
+        winner = 3;
+        earlyStart = false;
+        currentState = WINNER;
+        stateStartMs = now;
+        allLedsOff();
+        leftRowOn();
+        rightRowOn();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] 🤝 TIE! Both players pressed at the same time!");
+      } else if (buttonLeftPressed && !leftButtonPressedInGame) {
         leftButtonPressedInGame = true;
         winner = 1;
         earlyStart = false;
@@ -368,8 +383,22 @@ void loop() {
     }
 
     case WAITING_FOR_PRESS: {
-      // Check which player pressed first
-      if (buttonLeftPressed && !leftButtonPressedInGame) {
+      // Check which player pressed first — or if both pressed at once
+      if (buttonLeftPressed && buttonRightPressed && !leftButtonPressedInGame && !rightButtonPressedInGame) {
+        // TIE - both pressed at the same time!
+        leftButtonPressedInGame = true;
+        rightButtonPressedInGame = true;
+        winner = 3;
+        earlyStart = false;
+        currentState = WINNER;
+        stateStartMs = now;
+        allLedsOff();
+        leftRowOn();
+        rightRowOn();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] 🤝 TIE! Both players pressed at the same time!");
+      } else if (buttonLeftPressed && !leftButtonPressedInGame) {
         // Left player pressed first - LEFT WINS!
         leftButtonPressedInGame = true;
         winner = 1;
