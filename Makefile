@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display
+.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -26,6 +26,10 @@ help:
 	@echo "  make test              - Build sim library and run pytest"
 	@echo "  make display           - Launch pygame visualiser (keys: 1=left 2=right)"
 	@echo "  make sim-clean         - Remove simulation build artifacts"
+	@echo ""
+	@echo "WEB SIMULATOR (Vue + WASM):"
+	@echo "  make web-dev           - Start Vite dev server (hot-reload)"
+	@echo "  make web               - Build for production (web/dist/)"
 	@echo ""
 	@echo "UTILITY:"
 	@echo "  make clean             - Remove build artifacts"
@@ -98,6 +102,34 @@ test: sim
 
 display: sim
 	python -m f1_sim.f1_display
+
+# ── Web simulator (Vue + WASM) ──────────────────────────────────────────────
+WASM_OUT = web/public/f1sim.js
+WASM_SOURCES = $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.cpp $(SIM_CSRC)/Arduino.h
+
+wasm: $(WASM_OUT)
+
+$(WASM_OUT): $(WASM_SOURCES)
+	@echo "Building WASM module..."
+	emcc -std=c++17 -O2 \
+		-I $(SIM_CSRC) \
+		$(SIM_CSRC)/arduino_stub.cpp \
+		$(SIM_CSRC)/sim_bridge.cpp \
+		src/main.cpp \
+		-s EXPORTED_FUNCTIONS='["_sim_setup","_sim_loop","_sim_set_millis","_sim_get_millis","_sim_advance_millis","_sim_get_pin_value","_sim_set_pin_input","_sim_reset"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+		-s MODULARIZE=1 \
+		-s EXPORT_NAME='createF1Sim' \
+		-s ENVIRONMENT=web \
+		-s ALLOW_MEMORY_GROWTH=0 \
+		-o $(WASM_OUT)
+	@echo "Built $(WASM_OUT)"
+
+web-dev: wasm
+	cd web && npm install --silent && npx vite
+
+web: wasm
+	cd web && npm install --silent && npx vite build
 
 .DEFAULT_GOAL := help
 
