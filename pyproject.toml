@@ -3,7 +3,10 @@ name = "f1-lights"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "pytest>=8.4.2",
+    "setuptools",
+]
 
 [dependency-groups]
 dev = ["pytest"]
