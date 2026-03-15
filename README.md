@@ -57,37 +57,24 @@ pio device monitor --baud 9600 --port /dev/cu.usbserial-XXXX
 python3 tools/blink_preview.py
 ```
 
-## Modes
+## Simulation & Testing
 
-### F1 Start Sequence (Default)
-- Press both buttons simultaneously to start the sequence
-- LEDs light up left-to-right in columns (1 second intervals)
-- Random pause (1-3 seconds) with all lights on
-- All lights turn off simultaneously = **GO!**
-- Sequence repeats after 3-second delay
+### Interactive Python Simulator
+**Threaded Python simulator with real-time button/LED interaction**
 
-### Hardware Test Mode
-- LEDs cycle through one-by-one (500ms each)
-- Press **LEFT button**: All LEDs turn ON (interrupts sequence)
-- Press **RIGHT button**: All LEDs turn ON (interrupts sequence)
-- Release button: Sequence resumes
-- Perfect for testing individual LED connections and buttons
-
-## Building Different Modes
-
-```zsh
-# Build default F1 sequence mode
-make build
-make upload
-
-# Build hardware test mode
-make build-test
-make upload-test
-
-# Monitor either mode
-make monitor       # F1 sequence mode
-make monitor-test  # Hardware test mode
+```bash
+make run-simulator
 ```
+
+Commands: L/R (press), l/r (release), s (show state), q (quit)
+
+### Quick Timing Preview
+
+```bash
+make simulate
+```
+
+Shows one complete sequence timing with random delays.
 
 ## Wiring
 
