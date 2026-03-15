@@ -484,10 +484,15 @@ void loop() {
     case WINNER: {
       // Blink the winner row
       updateWinnerBlink();
-      updateRestartReadiness();
+
+      // Wait 250ms before listening for button releases / restart readiness
+      if (elapsedInState >= 250) {
+        updateRestartReadiness();
+      }
 
       // Wait for winner's button to be released before moving to display delay
-      if (!buttonLeftPressed && !buttonRightPressed) {
+      // (only after 250ms to avoid accidental instant restarts)
+      if (elapsedInState >= 250 && !buttonLeftPressed && !buttonRightPressed) {
         currentState = WINNER_DISPLAY_DELAY;
         stateStartMs = now;
         Serial.print("[");

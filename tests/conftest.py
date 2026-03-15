@@ -54,6 +54,10 @@ def sim_at_winner_display(sim: F1Sim) -> F1Sim:
     sim.advance_millis(15)
     sim.loop()
 
+    # Wait 250ms before WINNER state starts listening for button releases
+    sim.advance_millis(250)
+    sim.loop()
+
     # Release right button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
     sim.release_right()
     sim.advance_millis(15)

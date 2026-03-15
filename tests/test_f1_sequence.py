@@ -61,6 +61,10 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     # Penalty LED (middle LED of the guilty player's row) is also lit
     assert sim.led_state(penalty_pos) is True
 
+    # Wait 250ms before WINNER state starts listening for button releases
+    sim.advance_millis(250)
+    sim.loop()
+
     # Release button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
     if early_side == "left":
         sim.release_left()
@@ -198,6 +202,10 @@ def test_full_f1_sequence(sim: F1Sim):
     assert sim.top_row() == [False, False, False, False, False]
     assert sim.bottom_row() == [True, True, True, True, True]
 
+    # Wait 250ms before WINNER state starts listening for button releases
+    sim.advance_millis(250)
+    sim.loop()
+
     # Release right button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
     sim.release_right()
     sim.advance_millis(15)
@@ -313,6 +321,10 @@ def test_staggered_restart_after_winner(sim: F1Sim):
     sim.advance_millis(15)
     sim.loop()
     assert sim.bottom_row() == [True, True, True, True, True]
+
+    # Wait 250ms before WINNER state starts listening for restart readiness
+    sim.advance_millis(250)
+    sim.loop()
 
     # Left player presses and releases (signals ready) while right still holds
     sim.advance_millis(15)
