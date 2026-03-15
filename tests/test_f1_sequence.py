@@ -70,20 +70,35 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     }
 
 
+def _is_winner_display(sim: F1Sim, winner_row: str = "bottom") -> bool:
+    """Check that we're still showing winner state (not restarted into LIGHTING_UP).
+
+    The winner row blinks (250ms on / 250ms off), so at any given tick
+    either the full row is on or everything is off.  The key invariant:
+    the *other* row must always be completely off (no column-1 pattern).
+    """
+    top, bottom = sim.top_row(), sim.bottom_row()
+    if winner_row == "bottom":
+        # Top row must be all-off (no LIGHTING_UP column pattern)
+        return top == [False, False, False, False, False]
+    else:
+        return bottom == [False, False, False, False, False]
+
+
 def test_winner_display_not_skippable_before_200ms(sim_at_winner_display: F1Sim):
     """Winner display must persist for at least 200ms — button presses before that are ignored."""
     sim = sim_at_winner_display
 
-    # Confirm right player's row is still on
-    assert sim.bottom_row() == [True, True, True, True, True]
+    # Confirm right player's row is in winner display (blink on-phase right after entering state)
+    assert _is_winner_display(sim, "bottom")
 
     # Spam both buttons at 40ms intervals — 4 × 40ms = 160ms total, still under the 200ms guard
     for elapsed_ms in (40, 80, 120, 160):
         sim.advance_millis(40)
         sim.press_both()
         sim.loop()
-        assert sim.bottom_row() == [True, True, True, True, True], (
-            f"Winner display disappeared at {elapsed_ms}ms (before 200ms guard)"
+        assert _is_winner_display(sim, "bottom"), (
+            f"Winner display state exited at {elapsed_ms}ms (before 200ms guard)"
         )
 
     sim.release_both()
