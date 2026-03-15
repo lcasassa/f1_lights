@@ -78,8 +78,8 @@ def run():
     font_hint  = pygame.font.SysFont("monospace", 17)
     font_title = pygame.font.SysFont("monospace", 20, bold=True)
 
-    last_loop_ms = time.monotonic() * 1000
-    sim_time_ms  = 0
+    start_real_ms = time.monotonic() * 1000
+    sim_time_ms   = 0
 
     running = True
     while running:
@@ -102,13 +102,12 @@ def run():
         else:
             sim.release_right()
 
-        # ── Advance sim clock and call loop() every LOOP_INTERVAL_MS ─────
-        now_ms = time.monotonic() * 1000
-        if now_ms - last_loop_ms >= LOOP_INTERVAL_MS:
+        # ── Advance sim clock to match real elapsed time ─────────────────
+        real_elapsed_ms = (time.monotonic() * 1000) - start_real_ms
+        while sim_time_ms + LOOP_INTERVAL_MS <= real_elapsed_ms:
             sim_time_ms += LOOP_INTERVAL_MS
-            sim.set_millis(sim_time_ms)
+            sim.set_millis(int(sim_time_ms))
             sim.loop()
-            last_loop_ms = now_ms
 
         # ── Draw ─────────────────────────────────────────────────────────
         screen.fill(BG_COLOUR)
