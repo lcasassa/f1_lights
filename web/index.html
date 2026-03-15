@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>F1 Start Lights</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0f0f0f;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./f1sim.js"></script>
+  <script>
+    /* Initialise WASM before Vue boots */
+    window.__f1simReady = createF1Sim().then(mod => { window.__f1sim = mod })
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
+
