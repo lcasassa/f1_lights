@@ -63,6 +63,12 @@ unsigned long winnerDeclaredMs = 0;  // When the winner was declared (for blink 
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
 
+// Restart readiness — each player must press-and-release to signal ready
+bool leftReady = false;
+bool rightReady = false;
+bool leftSeenPressed = false;   // left button was pressed (waiting for release)
+bool rightSeenPressed = false;  // right button was pressed (waiting for release)
+
 // Button state tracking
 bool buttonLeftPressed = false;
 bool buttonRightPressed = false;
@@ -159,6 +165,23 @@ void setup() {
   stateStartMs = millis();
 }
 
+void updateRestartReadiness() {
+  // Track press-and-release for each player independently.
+  // A player is "ready" once they've pressed and then released.
+  if (buttonLeftPressed) leftSeenPressed = true;
+  if (!buttonLeftPressed && leftSeenPressed) leftReady = true;
+
+  if (buttonRightPressed) rightSeenPressed = true;
+  if (!buttonRightPressed && rightSeenPressed) rightReady = true;
+}
+
+void resetRestartReadiness() {
+  leftReady = false;
+  rightReady = false;
+  leftSeenPressed = false;
+  rightSeenPressed = false;
+}
+
 void updateWinnerBlink() {
   // Blink winner's row at BLINK_INTERVAL_MS; after BLINK_DURATION_MS turn all LEDs off
   unsigned long elapsed = millis() - winnerDeclaredMs;
@@ -234,6 +257,7 @@ void loop() {
           earlyStart = true;
           currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
@@ -250,6 +274,7 @@ void loop() {
           earlyStart = true;
           currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
@@ -303,6 +328,7 @@ void loop() {
           earlyStart = true;
           currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
@@ -319,6 +345,7 @@ void loop() {
           earlyStart = true;
           currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
@@ -357,6 +384,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -370,6 +398,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -382,6 +411,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         rightRowOn();
@@ -411,6 +441,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -425,6 +456,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -438,6 +470,7 @@ void loop() {
         earlyStart = false;
         currentState = WINNER;
           winnerDeclaredMs = now;
+          resetRestartReadiness();
         stateStartMs = now;
         allLedsOff();
         rightRowOn();
@@ -451,15 +484,29 @@ void loop() {
     case WINNER: {
       // Blink the winner row
       updateWinnerBlink();
+      updateRestartReadiness();
 
-      // Winner's row is ON - wait for buttons to be released
+      // Wait for winner's button to be released before moving to display delay
       if (!buttonLeftPressed && !buttonRightPressed) {
-        // Both buttons released - transition to display delay state (200ms minimum display time)
         currentState = WINNER_DISPLAY_DELAY;
         stateStartMs = now;
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] Buttons released - displaying result for 200ms...");
+      }
+
+      // Both players signalled ready (each pressed-and-released) — start immediately
+      if (leftReady && rightReady) {
+        currentState = LIGHTING_UP;
+        stateStartMs = now;
+        litColumnCount = 0;
+        winner = 0;
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
+        allLedsOff();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] ═══ BOTH READY - SEQUENCE START ═══");
       }
       break;
     }
@@ -467,15 +514,29 @@ void loop() {
     case WINNER_DISPLAY_DELAY: {
       // Keep blinking the winner row
       updateWinnerBlink();
+      updateRestartReadiness();
 
       // Display winner result for 200ms minimum
       if (elapsedInState >= 200) {
-        // 200ms has passed - now ready to accept button press for restart
         currentState = WINNER_WAIT_RESTART;
         stateStartMs = now;
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] Ready to restart - press any button...");
+      }
+
+      // Both ready AND 200ms passed — start immediately
+      if (leftReady && rightReady && elapsedInState >= 200) {
+        currentState = LIGHTING_UP;
+        stateStartMs = now;
+        litColumnCount = 0;
+        winner = 0;
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
+        allLedsOff();
+        Serial.print("[");
+        Serial.print(now);
+        Serial.println("ms] ═══ BOTH READY - SEQUENCE START ═══");
       }
       break;
     }
@@ -483,18 +544,20 @@ void loop() {
     case WINNER_WAIT_RESTART: {
       // Keep blinking the winner row
       updateWinnerBlink();
+      updateRestartReadiness();
 
-      // Winner still displayed - wait for both buttons pressed to restart sequence
-      if (buttonLeftPressed && buttonRightPressed) {
-        currentState = WAIT_RELEASE;
+      // Both players signalled ready (each pressed-and-released) — start sequence
+      if (leftReady && rightReady) {
+        currentState = LIGHTING_UP;
         stateStartMs = now;
+        litColumnCount = 0;
         winner = 0;
         leftButtonPressedInGame = false;
         rightButtonPressedInGame = false;
         allLedsOff();
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] ═══ BOTH PRESSED - RELEASE TO RESTART ═══");
+        Serial.println("ms] ═══ BOTH READY - SEQUENCE START ═══");
       }
       break;
     }

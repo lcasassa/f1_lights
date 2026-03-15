@@ -7,6 +7,7 @@ Written for anyone following the project — no code knowledge required.
 
 ## 2026-03-15
 
+- **Staggered restart fix** — Start sequence does not start if a player does not release the button after winning or losing, and expects the release to be the signal to start the sequence (the other player pressed and released). Forcing both players to press again.
 - **Release before start** — The light sequence only begins after both players release their buttons, preventing accidental early starts from the starting press.
 - **Winner blink auto-off** — The winning row blinks for 2 seconds then all LEDs turn off automatically.
 - **Tie detection** — When both players press at exactly the same time, the game declares a tie and both rows blink together.
