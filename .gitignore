@@ -41,10 +41,6 @@ Thumbs.db
 # Logs
 *.log
 
-# Simulation shared library
-libf1sim.dylib
-libf1sim.so
-libf1sim.dll
 
 # Python virtual environment
 .venv/

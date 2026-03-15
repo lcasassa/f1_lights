@@ -71,22 +71,25 @@ clean:
 # ── Desktop simulation (shared library for Python ctypes) ───────────────────
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-  SIM_LIB = libf1sim.dylib
+  SIM_LIB = build/libf1sim.dylib
   SIM_FLAGS = -dynamiclib
 else
-  SIM_LIB = libf1sim.so
+  SIM_LIB = build/libf1sim.so
   SIM_FLAGS = -shared
 endif
 
+SIM_CSRC = f1_sim/csrc
+
 sim: $(SIM_LIB)
 
-$(SIM_LIB): sim/arduino_stub.cpp sim/sim_bridge.cpp src/main.cpp sim/Arduino.h
+$(SIM_LIB): $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.cpp $(SIM_CSRC)/Arduino.h
+	@mkdir -p build
 	@echo "Building simulation shared library ($(SIM_LIB))..."
-	c++ -std=c++17 -O2 -fPIC $(SIM_FLAGS) -I sim sim/arduino_stub.cpp sim/sim_bridge.cpp src/main.cpp -o $(SIM_LIB)
+	c++ -std=c++17 -O2 -fPIC $(SIM_FLAGS) -I $(SIM_CSRC) $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.cpp -o $(SIM_LIB)
 	@echo "Built $(SIM_LIB) — use from Python:  from f1_sim import F1Sim"
 
 sim-clean:
-	rm -f libf1sim.dylib libf1sim.so
+	rm -f build/libf1sim.dylib build/libf1sim.so
 	@echo "Simulation artifacts removed."
 
 test: sim

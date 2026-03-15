@@ -1,7 +1,7 @@
 // sim_bridge.cpp – thin C API around the Arduino sketch for Python ctypes.
 //
-// Build as a shared library:
-//   c++ -std=c++17 -shared -fPIC -I sim sim/arduino_stub.cpp sim/sim_bridge.cpp src/main.cpp -o libf1sim.dylib
+// Build as a shared library (via Makefile):
+//   make sim
 //
 #include "Arduino.h"
 

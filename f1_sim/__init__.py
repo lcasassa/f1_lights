@@ -16,13 +16,11 @@ Usage:
 from __future__ import annotations
 
 import ctypes
-import os
 import platform
-import subprocess
 from pathlib import Path
 from typing import Dict
 
-_ROOT = Path(__file__).resolve().parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Pin mapping — must match main.cpp
 _A0 = 14
@@ -37,52 +35,18 @@ def _lib_path() -> Path:
     ext = {"Darwin": ".dylib", "Linux": ".so", "Windows": ".dll"}.get(
         platform.system(), ".so"
     )
-    return _ROOT / f"libf1sim{ext}"
-
-
-def _build_lib() -> Path:
-    """Compile the shared library from source."""
-    lib = _lib_path()
-    src_main = _ROOT / "src" / "main.cpp"
-    stub_cpp = _ROOT / "sim" / "arduino_stub.cpp"
-    bridge_cpp = _ROOT / "sim" / "sim_bridge.cpp"
-    sim_inc = _ROOT / "sim"
-
-    ext = lib.suffix
-    if ext == ".dylib":
-        extra = ["-dynamiclib"]
-    else:
-        extra = ["-shared"]
-
-    cmd = [
-        "c++",
-        "-std=c++17",
-        "-O2",
-        "-fPIC",
-        *extra,
-        f"-I{sim_inc}",
-        str(stub_cpp),
-        str(bridge_cpp),
-        str(src_main),
-        "-o",
-        str(lib),
-    ]
-    print(f"[f1_sim] building: {' '.join(cmd)}")
-    subprocess.check_call(cmd)
-    return lib
+    return _PROJECT_ROOT / "build" / f"libf1sim{ext}"
 
 
 class F1Sim:
     """High-level Python wrapper around the F1 start-lights simulation."""
 
-    def __init__(self, *, auto_build: bool = True):
+    def __init__(self):
         lib = _lib_path()
-        if not lib.exists() and auto_build:
-            _build_lib()
         if not lib.exists():
             raise FileNotFoundError(
                 f"Shared library not found at {lib}. "
-                "Run `make sim` or call f1_sim._build_lib() first."
+                "Build it first with: make sim"
             )
         self._lib = ctypes.CDLL(str(lib))
         self._configure_api()
