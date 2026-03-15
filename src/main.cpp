@@ -158,17 +158,23 @@ void setup() {
 }
 
 void updateWinnerBlink() {
-  // Blink winner's row (and penalty LED for early starts) at BLINK_INTERVAL_MS
+  // Blink winner's row at BLINK_INTERVAL_MS; penalty LED stays solid
   bool blinkOn = ((millis() / BLINK_INTERVAL_MS) % 2) == 0;
 
   allLedsOff();
   if (blinkOn) {
     if (winner == 1) {
       leftRowOn();
-      if (earlyStart) digitalWrite(PIN_MAP[7], HIGH);  // right player's penalty LED
     } else if (winner == 2) {
       rightRowOn();
-      if (earlyStart) digitalWrite(PIN_MAP[2], HIGH);  // left player's penalty LED
+    }
+  }
+  // Penalty LED stays solid (always on) during early starts
+  if (earlyStart) {
+    if (winner == 1) {
+      digitalWrite(PIN_MAP[7], HIGH);  // right player's penalty LED
+    } else if (winner == 2) {
+      digitalWrite(PIN_MAP[2], HIGH);  // left player's penalty LED
     }
   }
 }
