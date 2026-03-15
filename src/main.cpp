@@ -36,6 +36,7 @@ constexpr unsigned long MIN_RANDOM_DELAY_MS = 1000;     // Min random delay afte
 constexpr unsigned long MAX_RANDOM_DELAY_MS = 3000;     // Max random delay after all lights on
 constexpr unsigned long RESTART_DELAY_MS = 3000;        // Delay before next sequence starts
 constexpr unsigned long BLINK_INTERVAL_MS = 250;        // Winner row blink half-period (250ms on, 250ms off)
+constexpr unsigned long BLINK_DURATION_MS = 2000;       // Blink for 2 seconds then turn all LEDs off
 
 // State machine
 enum State {
@@ -57,6 +58,7 @@ unsigned long randomGoDelay = 0;  // Random delay before GO signal
 // Game state
 uint8_t winner = 0;  // 0 = no winner, 1 = left player, 2 = right player, 3 = tie
 bool earlyStart = false;  // Whether the win was due to a false start
+unsigned long winnerDeclaredMs = 0;  // When the winner was declared (for blink duration)
 bool leftButtonPressedInGame = false;
 bool rightButtonPressedInGame = false;
 bool buttonsReleasedAfterStart = false;  // Track if buttons released after sequence start
@@ -158,7 +160,14 @@ void setup() {
 }
 
 void updateWinnerBlink() {
-  // Blink winner's row at BLINK_INTERVAL_MS; penalty LED stays solid
+  // Blink winner's row at BLINK_INTERVAL_MS; after BLINK_DURATION_MS turn all LEDs off
+  unsigned long elapsed = millis() - winnerDeclaredMs;
+
+  if (elapsed >= BLINK_DURATION_MS) {
+    allLedsOff();
+    return;
+  }
+
   bool blinkOn = ((millis() / BLINK_INTERVAL_MS) % 2) == 0;
 
   allLedsOff();
@@ -218,6 +227,7 @@ void loop() {
           winner = 2;
           earlyStart = true;
           currentState = WINNER;
+          winnerDeclaredMs = now;
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
@@ -233,6 +243,7 @@ void loop() {
           winner = 1;
           earlyStart = true;
           currentState = WINNER;
+          winnerDeclaredMs = now;
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
@@ -287,6 +298,7 @@ void loop() {
           winner = 2;
           earlyStart = true;
           currentState = WINNER;
+          winnerDeclaredMs = now;
           stateStartMs = now;
           allLedsOff();
           rightRowOn();
@@ -302,6 +314,7 @@ void loop() {
           winner = 1;
           earlyStart = true;
           currentState = WINNER;
+          winnerDeclaredMs = now;
           stateStartMs = now;
           allLedsOff();
           leftRowOn();
@@ -340,6 +353,7 @@ void loop() {
         winner = 3;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -352,6 +366,7 @@ void loop() {
         winner = 1;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -363,6 +378,7 @@ void loop() {
         winner = 2;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         rightRowOn();
@@ -391,6 +407,7 @@ void loop() {
         winner = 3;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -404,6 +421,7 @@ void loop() {
         winner = 1;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         leftRowOn();
@@ -416,6 +434,7 @@ void loop() {
         winner = 2;
         earlyStart = false;
         currentState = WINNER;
+          winnerDeclaredMs = now;
         stateStartMs = now;
         allLedsOff();
         rightRowOn();

@@ -275,3 +275,28 @@ def test_tie_both_buttons_pressed_simultaneously(sim: F1Sim):
 
     assert sim.top_row() == [False, False, False, False, False]
     assert sim.bottom_row() == [False, False, False, False, False]
+
+
+def test_winner_blink_stops_after_2s(sim_at_winner_display: F1Sim):
+    """Winner row blinks for 2 seconds then all LEDs turn off."""
+    sim = sim_at_winner_display
+
+    # Confirm we're still in winner display (blink active)
+    assert _is_winner_display(sim, "bottom")
+
+    # Advance to just before 2s — blink should still be active
+    sim.advance_millis(1900)
+    sim.loop()
+    assert _is_winner_display(sim, "bottom")
+
+    # Advance past 2s — all LEDs must be off
+    sim.advance_millis(200)
+    sim.loop()
+
+    assert sim.led_states() == {i: False for i in range(1, 11)}
+
+    # Further loop ticks should keep LEDs off
+    sim.advance_millis(100)
+    sim.loop()
+
+    assert sim.led_states() == {i: False for i in range(1, 11)}
