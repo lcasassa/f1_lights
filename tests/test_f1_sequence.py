@@ -5,15 +5,27 @@ from f1_sim import F1Sim
 
 
 def start_sequence(sim: F1Sim):
-    """Press both buttons, release both, wait for LIGHTING_UP to begin."""
+    """Press both buttons, release both, wait for LIGHTING_UP to begin (from IDLE)."""
     sim.press_both()
     sim.advance_millis(15)
-    sim.loop()   # IDLE/WINNER_WAIT_RESTART -> WAIT_RELEASE
+    sim.loop()   # IDLE -> WAIT_RELEASE
     sim.release_both()
     sim.advance_millis(15)
     sim.loop()   # WAIT_RELEASE -> LIGHTING_UP, column 1 lights up
     sim.advance_millis(1)
     sim.loop()   # LIGHTING_UP: column 1 on
+
+
+def restart_sequence(sim: F1Sim):
+    """Both players press-and-release to signal ready (from winner states)."""
+    sim.press_both()
+    sim.advance_millis(15)
+    sim.loop()   # both seen pressed
+    sim.release_both()
+    sim.advance_millis(15)
+    sim.loop()   # both ready -> LIGHTING_UP
+    sim.advance_millis(1)
+    sim.loop()   # column 1 on
 
 
 @pytest.mark.parametrize("early_side, expected_top, expected_bottom, penalty_pos", [
@@ -61,8 +73,8 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
     sim.advance_millis(201)
     sim.loop()
 
-    # Press BOTH buttons -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
-    start_sequence(sim)
+    # Both players press-and-release -> ready -> LIGHTING_UP, column 1 on
+    restart_sequence(sim)
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
@@ -102,18 +114,23 @@ def test_winner_display_not_skippable_before_200ms(sim_at_winner_display: F1Sim)
         )
 
     sim.release_both()
-
-    # Push just past 200ms -> WINNER_DISPLAY_DELAY ends -> WINNER_WAIT_RESTART
-    sim.advance_millis(41)   # 160 + 41 = 201ms total
+    sim.advance_millis(15)
     sim.loop()
 
-    # Press BOTH buttons -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
-    start_sequence(sim)
+    # Still under 200ms — should still be in winner display
+    assert _is_winner_display(sim, "bottom")
+
+    # Push past 200ms — both players already pressed-and-released, so sequence starts automatically
+    sim.advance_millis(30)   # 160 + 15 + 30 = 205ms total
+    sim.loop()
+    sim.advance_millis(1)
+    sim.loop()
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
         6: True, 7: False, 8: False, 9: False, 10: False,
     }
+
 
 
 def test_full_f1_sequence(sim: F1Sim):
@@ -190,8 +207,8 @@ def test_full_f1_sequence(sim: F1Sim):
     sim.advance_millis(201)
     sim.loop()
 
-    # Restart: press both -> WAIT_RELEASE -> release -> LIGHTING_UP, column 1 on
-    start_sequence(sim)
+    # Restart: both players press-and-release -> ready -> LIGHTING_UP, column 1 on
+    restart_sequence(sim)
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
@@ -270,3 +287,54 @@ def test_winner_blink_stops_after_2s(sim_at_winner_display: F1Sim):
     sim.loop()
 
     assert sim.led_states() == {i: False for i in range(1, 11)}
+
+
+def test_staggered_restart_after_winner(sim: F1Sim):
+    """One player can press-and-release to signal ready while the winner still holds their button.
+    Once the winner also releases, the sequence starts without needing both to press again.
+    """
+    # Start sequence
+    sim.advance_millis(100)
+    start_sequence(sim)
+
+    # Advance through full sequence to BLACKOUT
+    for _ in range(5):
+        sim.advance_millis(1000)
+        sim.loop()
+    sim.advance_millis(1000)
+    sim.loop()
+    sim.advance_millis(3001)
+    sim.loop()
+
+    # Right player wins (and keeps holding button 2)
+    sim.advance_millis(15)
+    sim.press_right()
+    sim.loop()
+    sim.advance_millis(15)
+    sim.loop()
+    assert sim.bottom_row() == [True, True, True, True, True]
+
+    # Left player presses and releases (signals ready) while right still holds
+    sim.advance_millis(15)
+    sim.press_left()
+    sim.loop()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    # Left is now ready, right is still holding
+
+    # Right player finally releases — right is now ready too (press already seen, now released)
+    sim.release_right()
+    sim.advance_millis(15)
+    sim.loop()   # both ready -> LIGHTING_UP
+    sim.advance_millis(1)
+    sim.loop()   # column 1 on
+
+    assert sim.led_states() == {
+        1: True, 2: False, 3: False, 4: False, 5: False,
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }
+
+
