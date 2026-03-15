@@ -22,23 +22,16 @@ def sim():
 
 @pytest.fixture()
 def sim_at_winner_display(sim: F1Sim) -> F1Sim:
-    """Drive the sim from IDLE to WINNER_DISPLAY_DELAY with right player winning.
-
-    State on return:
-      - bottom row ON (right player won)
-      - just entered WINNER_DISPLAY_DELAY (elapsed ~ 0 ms)
-      - both buttons released
-    """
-    # Start sequence with both buttons
+    """Drive the sim from IDLE to WINNER_DISPLAY_DELAY with right player winning."""
+    # Start sequence: press both -> WAIT_RELEASE -> release -> LIGHTING_UP
     sim.advance_millis(100)
     sim.press_both()
-    sim.loop()
     sim.advance_millis(15)
     sim.loop()
-
-    # Release both so early-start detection arms
     sim.release_both()
     sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(1)
     sim.loop()
 
     # Tick through LIGHTING_UP: 5 columns × 1000ms each
@@ -46,7 +39,7 @@ def sim_at_winner_display(sim: F1Sim) -> F1Sim:
         sim.advance_millis(1000)
         sim.loop()
 
-    # Tick into ALL_ON (transition fires after 5 × LIGHT_INTERVAL elapsed)
+    # Tick into ALL_ON
     sim.advance_millis(1000)
     sim.loop()
 

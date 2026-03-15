@@ -7,6 +7,7 @@ Written for anyone following the project — no code knowledge required.
 
 ## 2026-03-15
 
+- **Release before start** — The light sequence only begins after both players release their buttons, preventing accidental early starts from the starting press.
 - **Winner blink auto-off** — The winning row blinks for 2 seconds then all LEDs turn off automatically.
 - **Tie detection** — When both players press at exactly the same time, the game declares a tie and both rows blink together.
 - **Desktop simulator** — Run the game on your computer with a visual LED display (`make display`); hold **1** for left player, **2** for right player.
