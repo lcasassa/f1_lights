@@ -7,7 +7,9 @@ Written for anyone following the project — no code knowledge required.
 
 ## 2026-03-15
 
-- **Restart debounce delay** — After entering the WINNER state, restart-readiness tracking now waits 250 ms before monitoring button presses/releases. This prevents a natural button release (from the winning press) from being counted as a "ready" signal.
+- **Winner display guard enforced** — Pressing buttons to signal restart readiness no longer bypasses the 200 ms minimum winner display. The winner result is always shown for at least 200 ms before the next sequence can begin.
+- **Ready indicator LEDs** — When a player signals ready to restart, their first LED (POS-1 or POS-6) turns on solid. The other player's first LED blinks to prompt them. Indicators only appear after the winner blink ends to avoid two competing blink patterns. Both indicators disappear once readiness expires or the game restarts.
+- **Ready-signal timeout** — If a player signals ready to restart (press-and-release) and 2 seconds pass without the other player doing the same, the first player's readiness expires and they must signal again. Prevents one-sided "stale" restarts after long pauses.
 - **Web simulator** — Play in the browser with no install; the same C++ code runs via WebAssembly (`make web-dev` for dev, `make web` for production build).
 - **Staggered restart fix** — Start sequence does not start if a player does not release the button after winning or losing, and expects the release to be the signal to start the sequence (the other player pressed and released). Forcing both players to press again.
 - **Release before start** — The light sequence only begins after both players release their buttons, preventing accidental early starts from the starting press.

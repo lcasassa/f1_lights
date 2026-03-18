@@ -1,3 +1,7 @@
+    sim.loop()   # both ready -> LIGHTING_UP
+        return bottom == [False, False, False, False, False]
+        # Top row must be all-off (no LIGHTING_UP column pattern)
+        return top == [False, False, False, False, False]
 """Test the full F1 start-light game sequence via the desktop simulation."""
 
 import pytest
@@ -87,14 +91,16 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
 
 
 def _is_winner_display(sim: F1Sim, winner_row: str = "bottom") -> bool:
-    """Check that we're still showing winner state (not restarted into LIGHTING_UP).
+    positions 2-5 of the *other* row must always be off (no column-2+
+    LIGHTING_UP pattern).  Position 1 may be on due to the ready indicator.
 
     The winner row blinks (250ms on / 250ms off), so at any given tick
     either the full row is on or everything is off.  The key invariant:
-    the *other* row must always be completely off (no column-1 pattern).
-    """
+        # Top row positions 2-5 must be off (pos 1 may be a ready indicator)
+        return top[1:] == [False, False, False, False]
     top, bottom = sim.top_row(), sim.bottom_row()
-    if winner_row == "bottom":
+        # Bottom row positions 7-10 must be off (pos 6 may be a ready indicator)
+        return bottom[1:] == [False, False, False, False]
         # Top row must be all-off (no LIGHTING_UP column pattern)
         return top == [False, False, False, False, False]
     else:
@@ -334,9 +340,14 @@ def test_staggered_restart_after_winner(sim: F1Sim):
     sim.loop()
     sim.release_left()
     sim.advance_millis(15)
+    # Both buttons released -> WINNER_DISPLAY_DELAY (200ms guard)
     sim.loop()
     # Left is now ready, right is still holding
+    sim.loop()
 
+    # Advance past the 200ms display guard; both already ready -> LIGHTING_UP
+    sim.advance_millis(201)
+    sim.loop()
     # Right player finally releases — right is now ready too (press already seen, now released)
     sim.release_right()
     sim.advance_millis(15)
@@ -350,3 +361,202 @@ def test_staggered_restart_after_winner(sim: F1Sim):
     }
 
 
+def _drive_to_winner_wait_restart(sim: F1Sim) -> F1Sim:
+    """Drive sim from IDLE through a full game to WINNER_WAIT_RESTART (right player wins).
+
+    NOTE: The right player's winning press-release cycle counts as a ready
+    signal, so right is already "ready" when we reach WINNER_WAIT_RESTART.
+    """
+    sim.advance_millis(100)
+    start_sequence(sim)
+
+    # Advance through LIGHTING_UP + ALL_ON + BLACKOUT
+    for _ in range(5):
+        sim.advance_millis(1000)
+        sim.loop()
+    sim.advance_millis(1000)
+    sim.loop()
+    sim.advance_millis(3001)
+    sim.loop()
+
+    # Right player wins
+    sim.advance_millis(15)
+    sim.press_right()
+    sim.loop()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Wait 250ms debounce, then release -> WINNER_DISPLAY_DELAY -> WINNER_WAIT_RESTART
+    sim.advance_millis(250)
+    sim.loop()
+    sim.release_right()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(201)
+    sim.loop()
+
+    return sim
+
+
+def test_ready_timeout_expires_after_2s(sim: F1Sim):
+    """If one player signals ready and 2 seconds pass without the other, readiness expires.
+
+    After _drive_to_winner_wait_restart, right is already ready (from the
+    winning press-release).  We wait >2s so right's readiness expires,
+    then left signals ready alone.  After 2s left's readiness also expires.
+    Finally both signal together and the game restarts.
+    """
+    sim = _drive_to_winner_wait_restart(sim)
+    # Right is already ready from the winning press-release.
+
+    # Wait 2 seconds — right's readiness should expire (left never signalled)
+    sim.advance_millis(2000)
+    sim.loop()
+
+    # Now left player signals ready
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    # Left is ready, right's readiness expired — should NOT restart
+
+    assert _is_winner_display(sim, "bottom")
+
+    # Wait 2 more seconds — left's readiness expires too
+    sim.advance_millis(2000)
+    sim.loop()
+
+    # Now right signals ready
+    sim.press_right()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_right()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Should NOT restart — left expired, only right is ready
+    assert _is_winner_display(sim, "bottom")
+
+    # Left signals again — now both are ready, restart happens
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(1)
+    sim.loop()
+
+    assert sim.led_states() == {
+        1: True, 2: False, 3: False, 4: False, 5: False,
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }
+
+
+def test_ready_within_2s_still_works(sim: F1Sim):
+    """If both players signal ready within 2 seconds, the game restarts normally.
+
+    After _drive_to_winner_wait_restart, right is already ready.  Left
+    signals ready within 2s and the game restarts.
+    """
+    sim = _drive_to_winner_wait_restart(sim)
+    # Right is already ready from winning press-release.
+
+    # Left player signals ready within 2s
+    sim.advance_millis(500)
+    sim.loop()
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(1)
+    sim.loop()
+
+    assert sim.led_states() == {
+        1: True, 2: False, 3: False, 4: False, 5: False,
+def test_ready_indicator_solid_for_ready_player(sim: F1Sim):
+    """When one player signals ready (after blink ends), their first LED turns on solid."""
+    sim = _drive_to_winner_wait_restart(sim)
+    # Wait for winner blink AND right's initial readiness to expire
+    sim.advance_millis(2100)
+    sim.loop()
+
+    # All LEDs should be off now (blink ended, readiness expired)
+    assert sim.led_states() == {i: False for i in range(1, 11)}
+
+    # Left player signals ready
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Left is ready -> POS-1 (left's first LED) must be solid ON
+    assert sim.led_state(1) is True
+
+    # The rest of both rows (except indicator positions) must be off
+    for pos in (2, 3, 4, 5, 7, 8, 9, 10):
+        assert sim.led_state(pos) is False, f"POS-{pos} should be off"
+
+
+def test_ready_indicator_blinks_for_non_ready_player(sim: F1Sim):
+    """When one player is ready, the other player's first LED blinks (500ms half-period)."""
+    sim = _drive_to_winner_wait_restart(sim)
+    # Wait for winner blink AND right's initial readiness to expire
+    sim.advance_millis(2100)
+    sim.loop()
+
+    # Fresh ready signal from left player (now in clean post-blink window)
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    # Left is ready; right is not. Ready indicator should be active.
+
+    # Align to a 500ms boundary
+    current = sim.get_millis()
+    offset = 500 - (current % 500)
+    if offset == 500:
+        offset = 0
+    if offset > 0:
+        sim.advance_millis(offset)
+        sim.loop()
+
+    pos6_phase_a = sim.led_state(6)
+
+    # Advance exactly 500ms to toggle the blink phase
+    sim.advance_millis(500)
+    sim.loop()
+
+    pos6_phase_b = sim.led_state(6)
+
+    # The two readings must differ (one on, one off = blink)
+    assert pos6_phase_a != pos6_phase_b, (
+        f"POS-6 should blink: was {pos6_phase_a} then {pos6_phase_b}"
+    )
+
+    # POS-1 stays solid throughout (left is ready)
+    assert sim.led_state(1) is True
+
+
+def test_ready_indicator_off_when_no_one_ready(sim: F1Sim):
+    """After both players' readiness expires, all indicator LEDs are off."""
+    sim = _drive_to_winner_wait_restart(sim)
+    # Right is ready. Wait for right's readiness to expire (2s timeout).
+    sim.advance_millis(2100)
+    sim.loop()
+
+    # Both expired — no indicators should be shown. All LEDs off
+    # (winner blink also ended since > 2s from winner declared)
+    assert sim.led_states() == {i: False for i in range(1, 11)}
+
+
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }
