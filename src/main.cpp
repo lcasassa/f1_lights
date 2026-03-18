@@ -37,6 +37,8 @@ constexpr unsigned long MAX_RANDOM_DELAY_MS = 3000;     // Max random delay afte
 constexpr unsigned long RESTART_DELAY_MS = 3000;        // Delay before next sequence starts
 constexpr unsigned long BLINK_INTERVAL_MS = 250;        // Winner row blink half-period (250ms on, 250ms off)
 constexpr unsigned long BLINK_DURATION_MS = 2000;       // Blink for 2 seconds then turn all LEDs off
+constexpr unsigned long READY_TIMEOUT_MS = 2000;        // Ready signal expires if other player doesn't signal within 2s
+constexpr unsigned long READY_BLINK_INTERVAL_MS = 500;  // Blink half-period for "waiting for you" indicator
 
 // State machine
 enum State {
@@ -68,6 +70,8 @@ bool leftReady = false;
 bool rightReady = false;
 bool leftSeenPressed = false;   // left button was pressed (waiting for release)
 bool rightSeenPressed = false;  // right button was pressed (waiting for release)
+unsigned long leftReadyMs = 0;  // when left player became ready (for timeout)
+unsigned long rightReadyMs = 0; // when right player became ready (for timeout)
 
 // Button state tracking
 bool buttonLeftPressed = false;
@@ -169,10 +173,31 @@ void updateRestartReadiness() {
   // Track press-and-release for each player independently.
   // A player is "ready" once they've pressed and then released.
   if (buttonLeftPressed) leftSeenPressed = true;
-  if (!buttonLeftPressed && leftSeenPressed) leftReady = true;
+  if (!buttonLeftPressed && leftSeenPressed) {
+    if (!leftReady) {
+      leftReady = true;
+      leftReadyMs = millis();
+    }
+  }
 
   if (buttonRightPressed) rightSeenPressed = true;
-  if (!buttonRightPressed && rightSeenPressed) rightReady = true;
+  if (!buttonRightPressed && rightSeenPressed) {
+    if (!rightReady) {
+      rightReady = true;
+      rightReadyMs = millis();
+    }
+  }
+
+  // Expire a player's readiness if 2s passed and the other isn't ready yet
+  const unsigned long now = millis();
+  if (leftReady && !rightReady && (now - leftReadyMs >= READY_TIMEOUT_MS)) {
+    leftReady = false;
+    leftSeenPressed = false;
+  }
+  if (rightReady && !leftReady && (now - rightReadyMs >= READY_TIMEOUT_MS)) {
+    rightReady = false;
+    rightSeenPressed = false;
+  }
 }
 
 void resetRestartReadiness() {
@@ -180,6 +205,8 @@ void resetRestartReadiness() {
   rightReady = false;
   leftSeenPressed = false;
   rightSeenPressed = false;
+  leftReadyMs = 0;
+  rightReadyMs = 0;
 }
 
 void updateWinnerBlink() {
@@ -211,6 +238,29 @@ void updateWinnerBlink() {
     } else if (winner == 2) {
       digitalWrite(PIN_MAP[2], HIGH);  // left player's penalty LED
     }
+  }
+}
+
+void updateReadyIndicator() {
+  // Show ready-state feedback once at least one player is ready
+  // AND the winner blink has ended (avoid two competing blink rates).
+  if (!leftReady && !rightReady) return;
+  if (millis() - winnerDeclaredMs < BLINK_DURATION_MS) return;
+
+  bool promptBlink = ((millis() / READY_BLINK_INTERVAL_MS) % 2) == 0;
+
+  if (leftReady) {
+    digitalWrite(PIN_MAP[0], HIGH);   // POS-1 solid
+  } else {
+    // Left not ready — blink POS-1 to prompt
+    digitalWrite(PIN_MAP[0], promptBlink ? HIGH : LOW);
+  }
+
+  if (rightReady) {
+    digitalWrite(PIN_MAP[5], HIGH);   // POS-6 solid
+  } else {
+    // Right not ready — blink POS-6 to prompt
+    digitalWrite(PIN_MAP[5], promptBlink ? HIGH : LOW);
   }
 }
 
@@ -490,28 +540,19 @@ void loop() {
         updateRestartReadiness();
       }
 
+      // Show ready indicators (solid first LED for ready player, blink for other)
+      updateReadyIndicator();
+
       // Wait for winner's button to be released before moving to display delay
-      // (only after 250ms to avoid accidental instant restarts)
+      // (only after 250ms to avoid accidental instant restarts).
+      // Restart always goes through WINNER_DISPLAY_DELAY to respect the
+      // 200ms minimum display guard — no shortcut to LIGHTING_UP here.
       if (elapsedInState >= 250 && !buttonLeftPressed && !buttonRightPressed) {
         currentState = WINNER_DISPLAY_DELAY;
         stateStartMs = now;
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] Buttons released - displaying result for 200ms...");
-      }
-
-      // Both players signalled ready (each pressed-and-released) — start immediately
-      if (leftReady && rightReady) {
-        currentState = LIGHTING_UP;
-        stateStartMs = now;
-        litColumnCount = 0;
-        winner = 0;
-        leftButtonPressedInGame = false;
-        rightButtonPressedInGame = false;
-        allLedsOff();
-        Serial.print("[");
-        Serial.print(now);
-        Serial.println("ms] ═══ BOTH READY - SEQUENCE START ═══");
       }
       break;
     }
@@ -520,6 +561,7 @@ void loop() {
       // Keep blinking the winner row
       updateWinnerBlink();
       updateRestartReadiness();
+      updateReadyIndicator();
 
       // Display winner result for 200ms minimum
       if (elapsedInState >= 200) {
@@ -550,6 +592,7 @@ void loop() {
       // Keep blinking the winner row
       updateWinnerBlink();
       updateRestartReadiness();
+      updateReadyIndicator();
 
       // Both players signalled ready (each pressed-and-released) — start sequence
       if (leftReady && rightReady) {
