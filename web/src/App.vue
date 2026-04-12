@@ -7,6 +7,13 @@
       <div class="key" :class="{ active: rightPressed }">[2] Player 2</div>
     </div>
     <p class="hint">Hold <kbd>1</kbd> / <kbd>2</kbd> to press buttons</p>
+    <footer class="footer">
+      <a href="https://github.com/lcasassa/f1_lights" target="_blank" rel="noopener">GitHub</a>
+      <span>·</span>
+      <a href="https://github.com/lcasassa/f1_lights/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      <span>·</span>
+      <span>© 2026 Linus Casassa</span>
+    </footer>
   </div>
 </template>
 
@@ -245,6 +252,25 @@ kbd {
   border-radius: 3px;
   border: 1px solid #555;
   font-family: inherit;
+}
+
+.footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #444;
+}
+
+.footer a {
+  color: #666;
+  text-decoration: none;
+}
+
+.footer a:hover {
+  color: #999;
+  text-decoration: underline;
 }
 </style>
 
