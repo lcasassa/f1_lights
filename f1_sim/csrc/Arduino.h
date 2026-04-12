@@ -45,6 +45,10 @@ unsigned long millis();
 void          delay(unsigned long ms);          // no-op in sim
 void          delayMicroseconds(unsigned int us); // no-op
 
+// ── Tone API (passive buzzer) ────────────────────────────────────────────────
+void tone(uint8_t pin, unsigned int frequency, unsigned long duration = 0);
+void noTone(uint8_t pin);
+
 // ── Random API ──────────────────────────────────────────────────────────────
 void  randomSeed(unsigned long seed);
 long  random(long max);
