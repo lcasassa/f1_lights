@@ -5,9 +5,10 @@
 
 // Pin mapping — must match main.cpp
 const A0 = 14
-const PIN_MAP = [A0, 4, 12, 11, 10, 5, 6, 7, 8, 9] // POS-1..POS-10
-const BUTTON_LEFT_PIN = 3
-const BUTTON_RIGHT_PIN = 2
+const A1 = 15
+const PIN_MAP = [4, 11, 12, A0, A1, 5, 10, 9, 8, 7] // POS-1..POS-10
+const BUTTON_LEFT_PIN = 2
+const BUTTON_RIGHT_PIN = 3
 const HIGH = 1
 const LOW = 0
 
