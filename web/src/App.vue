@@ -25,6 +25,7 @@ let sim = null
 let startRealMs = 0
 let simTimeMs = 0
 let rafId = null
+let startupDone = false
 
 // ── Web Audio for buzzer tones ──────────────────────────────────────────────
 let audioCtx = null
@@ -67,6 +68,40 @@ function setTone(freq) {
     oscillator.start()
   }
 }
+
+/**
+ * Schedule a pre-recorded tone log with Web Audio.
+ * Each entry is {ms, freq}. We create oscillator segments so the startup
+ * sound plays back in real-time exactly as it would on the hardware.
+ * Returns the total duration in seconds.
+ */
+function scheduleToneLog(log) {
+  if (!log.length) return 0
+  ensureAudioCtx()
+
+  const baseTime = audioCtx.currentTime
+  const originMs = log[0].ms
+
+  for (let i = 0; i < log.length; i++) {
+    const { ms, freq } = log[i]
+    // Determine when the next event starts (or end of this one)
+    const nextMs = (i + 1 < log.length) ? log[i + 1].ms : ms
+    const startSec = (ms - originMs) / 1000
+    const endSec = (nextMs - originMs) / 1000
+
+    if (freq === 0 || endSec <= startSec) continue
+
+    const osc = audioCtx.createOscillator()
+    osc.type = 'square'
+    osc.frequency.value = freq
+    osc.connect(gainNode)
+    osc.start(baseTime + startSec)
+    osc.stop(baseTime + endSec)
+  }
+
+  const lastMs = log[log.length - 1].ms
+  return (lastMs - originMs) / 1000
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const keysDown = new Set()
@@ -92,7 +127,7 @@ function updateButtons() {
   leftPressed.value = left
   rightPressed.value = right
 
-  if (!sim) return
+  if (!sim || !startupDone) return
   if (left) sim.pressLeft()
   else sim.releaseLeft()
   if (right) sim.pressRight()
@@ -126,15 +161,27 @@ onMounted(() => {
   sim = createSim()
   sim.reset()
   sim.setMillis(0)
-  sim.setup()
+  sim.setup()  // runs the blocking startup sound — advances sim clock & fills tone log
 
-  startRealMs = performance.now()
-  simTimeMs = 0
+  // Read the startup tone log produced during setup() and schedule it with Web Audio
+  ensureAudioCtx()
+  const startupLog = sim.toneLog()
+  const startupDurationSec = scheduleToneLog(startupLog)
+  sim.toneLogClear()
+
+  // The sim clock is now at the end of setup(). Sync simTimeMs to it and
+  // start the real-time loop after the startup sound finishes playing.
+  const postSetupMs = sim.getMillis()
+
+  setTimeout(() => {
+    startupDone = true
+    simTimeMs = postSetupMs
+    startRealMs = performance.now()
+    rafId = requestAnimationFrame(tick)
+  }, startupDurationSec * 1000)
 
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
-
-  rafId = requestAnimationFrame(tick)
 })
 
 onUnmounted(() => {

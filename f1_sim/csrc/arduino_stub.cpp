@@ -12,6 +12,9 @@ unsigned int   sim_tone_freq   = 0;
 uint8_t        sim_tone_pin    = 0;
 unsigned long  sim_tone_end_ms = 0;
 
+SimToneEvent  sim_tone_log[SIM_TONE_LOG_MAX] = {};
+unsigned int  sim_tone_log_count = 0;
+
 HardwareSerial Serial;
 
 // ── Arduino API implementations ─────────────────────────────────────────────
@@ -48,18 +51,26 @@ unsigned long millis() {
     return sim_millis_value;
 }
 
-void delay(unsigned long) { /* no-op */ }
+void delay(unsigned long ms) { sim_millis_value += ms; }
 void delayMicroseconds(unsigned int) { /* no-op */ }
+
+static void sim_tone_log_push(unsigned int freq) {
+    if (sim_tone_log_count < SIM_TONE_LOG_MAX) {
+        sim_tone_log[sim_tone_log_count++] = { sim_millis_value, freq };
+    }
+}
 
 void tone(uint8_t pin, unsigned int freq, unsigned long duration) {
     sim_tone_pin    = pin;
     sim_tone_freq   = freq;
     sim_tone_end_ms = (duration > 0) ? (sim_millis_value + duration) : 0;
+    sim_tone_log_push(freq);
 }
 void noTone(uint8_t pin) {
     if (pin == sim_tone_pin) {
         sim_tone_freq   = 0;
         sim_tone_end_ms = 0;
+        sim_tone_log_push(0);
     }
 }
 

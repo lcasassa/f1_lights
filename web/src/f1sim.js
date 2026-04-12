@@ -26,6 +26,10 @@ export function createSim() {
   const simReset = mod.cwrap('sim_reset', null, [])
   const simGetToneFreq = mod.cwrap('sim_get_tone_freq', 'number', [])
   const simGetTonePin = mod.cwrap('sim_get_tone_pin', 'number', [])
+  const simGetToneLogCount = mod.cwrap('sim_get_tone_log_count', 'number', [])
+  const simGetToneLogMs = mod.cwrap('sim_get_tone_log_ms', 'number', ['number'])
+  const simGetToneLogFreq = mod.cwrap('sim_get_tone_log_freq', 'number', ['number'])
+  const simToneLogClear = mod.cwrap('sim_tone_log_clear', null, [])
 
   return {
     setup: () => simSetup(),
@@ -38,6 +42,17 @@ export function createSim() {
     // Tone / buzzer helpers
     toneFreq: () => simGetToneFreq(),
     tonePin: () => simGetTonePin(),
+
+    /** Return the full tone event log as an array of {ms, freq} objects. */
+    toneLog() {
+      const n = simGetToneLogCount()
+      const log = []
+      for (let i = 0; i < n; i++) {
+        log.push({ ms: simGetToneLogMs(i), freq: simGetToneLogFreq(i) })
+      }
+      return log
+    },
+    toneLogClear: () => simToneLogClear(),
 
     // LED helpers
     ledState(position) {
