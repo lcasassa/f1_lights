@@ -89,6 +89,8 @@ watch(() => props.leds, () => draw(), { deep: true })
 .board {
   border-radius: 12px;
   border: 1px solid #222;
+  max-width: 90vw;
+  height: auto;
 }
 </style>
 

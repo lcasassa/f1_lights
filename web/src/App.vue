@@ -1,12 +1,28 @@
 <template>
   <div class="app">
     <h1 class="title">F1 START LIGHTS</h1>
+    <div
+      class="key"
+      :class="{ active: leftPressed }"
+      @mousedown.prevent="onBtnDown('left')"
+      @mouseup.prevent="onBtnUp('left')"
+      @mouseleave="onBtnUp('left')"
+      @touchstart.prevent="onBtnDown('left')"
+      @touchend.prevent="onBtnUp('left')"
+      @touchcancel="onBtnUp('left')"
+    >[1] Player 1</div>
     <F1Board :leds="leds" />
-    <div class="controls">
-      <div class="key" :class="{ active: leftPressed }">[1] Player 1</div>
-      <div class="key" :class="{ active: rightPressed }">[2] Player 2</div>
-    </div>
-    <p class="hint">Hold <kbd>1</kbd> / <kbd>2</kbd> to press buttons</p>
+    <div
+      class="key"
+      :class="{ active: rightPressed }"
+      @mousedown.prevent="onBtnDown('right')"
+      @mouseup.prevent="onBtnUp('right')"
+      @mouseleave="onBtnUp('right')"
+      @touchstart.prevent="onBtnDown('right')"
+      @touchend.prevent="onBtnUp('right')"
+      @touchcancel="onBtnUp('right')"
+    >[2] Player 2</div>
+    <p class="hint">Hold <kbd>1</kbd> / <kbd>2</kbd> keys or tap &amp; hold the buttons</p>
     <footer class="footer">
       <a href="https://github.com/lcasassa/f1_lights" target="_blank" rel="noopener">GitHub</a>
       <span>·</span>
@@ -129,9 +145,26 @@ function onKeyUp(e) {
   updateButtons()
 }
 
+// ── Touch / click button handling (mobile) ──────────────────────────────────
+const touchDown = { left: false, right: false }
+
+function onBtnDown(side) {
+  touchDown[side] = true
+  updateButtons()
+  // Resume AudioContext on user gesture (browser policy)
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume()
+  ensureAudioCtx()
+}
+
+function onBtnUp(side) {
+  touchDown[side] = false
+  updateButtons()
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function updateButtons() {
-  const left = keysDown.has('1')
-  const right = keysDown.has('2')
+  const left = keysDown.has('1') || touchDown.left
+  const right = keysDown.has('2') || touchDown.right
 
   leftPressed.value = left
   rightPressed.value = right
@@ -258,20 +291,19 @@ onUnmounted(() => {
   margin: 0;
 }
 
-.controls {
-  display: flex;
-  gap: 32px;
-}
 
 .key {
-  padding: 8px 20px;
+  padding: 14px 28px;
   border-radius: 6px;
   background: #222;
   color: #555;
-  font-size: 16px;
+  font-size: 18px;
   font-family: 'Courier New', monospace;
   border: 1px solid #333;
   transition: all 0.1s;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .key.active {
