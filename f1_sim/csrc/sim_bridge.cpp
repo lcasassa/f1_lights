@@ -48,6 +48,18 @@ void sim_get_all_pin_values(uint8_t* out, uint8_t count) {
     }
 }
 
+// ── Tone / buzzer inspection ────────────────────────────────────────────────
+// Auto-expire: if a duration was specified and the sim clock has passed it,
+// the tone is silenced — matching real Arduino hardware behaviour.
+unsigned int sim_get_tone_freq() {
+    if (sim_tone_freq != 0 && sim_tone_end_ms != 0 && sim_millis_value >= sim_tone_end_ms) {
+        sim_tone_freq   = 0;
+        sim_tone_end_ms = 0;
+    }
+    return sim_tone_freq;
+}
+uint8_t      sim_get_tone_pin()  { return sim_tone_pin;  }
+
 // ── Full reset (re-initialise all simulated state) ──────────────────────────
 void sim_reset() {
     for (uint8_t i = 0; i < SIM_MAX_PINS; i++) {
@@ -56,6 +68,9 @@ void sim_reset() {
         sim_pin_input[i]  = 0;
     }
     sim_millis_value = 0;
+    sim_tone_freq   = 0;
+    sim_tone_pin    = 0;
+    sim_tone_end_ms = 0;
 }
 
 }  // extern "C"

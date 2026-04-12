@@ -24,6 +24,8 @@ export function createSim() {
   const simGetPinValue = mod.cwrap('sim_get_pin_value', 'number', ['number'])
   const simSetPinInput = mod.cwrap('sim_set_pin_input', null, ['number', 'number'])
   const simReset = mod.cwrap('sim_reset', null, [])
+  const simGetToneFreq = mod.cwrap('sim_get_tone_freq', 'number', [])
+  const simGetTonePin = mod.cwrap('sim_get_tone_pin', 'number', [])
 
   return {
     setup: () => simSetup(),
@@ -32,6 +34,10 @@ export function createSim() {
     getMillis: () => simGetMillis(),
     advanceMillis: (delta) => simAdvanceMillis(delta),
     reset: () => simReset(),
+
+    // Tone / buzzer helpers
+    toneFreq: () => simGetToneFreq(),
+    tonePin: () => simGetTonePin(),
 
     // LED helpers
     ledState(position) {

@@ -90,6 +90,12 @@ class F1Sim:
         L.sim_reset.restype = None
         L.sim_reset.argtypes = []
 
+        L.sim_get_tone_freq.restype = ctypes.c_uint
+        L.sim_get_tone_freq.argtypes = []
+
+        L.sim_get_tone_pin.restype = ctypes.c_uint8
+        L.sim_get_tone_pin.argtypes = []
+
     # ── Sketch entry-points ──────────────────────────────────────────────────
 
     def setup(self):
@@ -123,6 +129,16 @@ class F1Sim:
 
     def get_pin_input(self, pin: int) -> int:
         return self._lib.sim_get_pin_input(pin)
+
+    # ── Tone / buzzer helpers ──────────────────────────────────────────────────
+
+    def tone_freq(self) -> int:
+        """Return the current buzzer frequency (0 = silent)."""
+        return self._lib.sim_get_tone_freq()
+
+    def tone_pin(self) -> int:
+        """Return the pin the tone is currently playing on."""
+        return self._lib.sim_get_tone_pin()
 
     # ── LED helpers ──────────────────────────────────────────────────────────
 
