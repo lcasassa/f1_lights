@@ -33,6 +33,8 @@ let startRealMs = 0
 let simTimeMs = 0
 let rafId = null
 let startupDone = false
+let freezeUntilRealMs = 0        // pause game loop while a blocking sound plays
+let frozenSimTimeMs = 0          // sim time when the freeze started
 
 // ── Web Audio for buzzer tones ──────────────────────────────────────────────
 let audioCtx = null
@@ -146,11 +148,48 @@ function tick() {
 
   if (!sim) return
 
-  const realElapsedMs = performance.now() - startRealMs
+  const nowReal = performance.now()
+
+  // If we're frozen (blocking sound playing), wait it out then resync
+  if (freezeUntilRealMs > 0) {
+    if (nowReal < freezeUntilRealMs) {
+      // Still frozen — just render current LED state, don't advance sim
+      return
+    }
+    // Freeze ended — resync real-time base so that the game continues
+    // from the post-sound sim time without any catchup burst.
+    simTimeMs = frozenSimTimeMs
+    startRealMs = nowReal - simTimeMs
+    freezeUntilRealMs = 0
+    frozenSimTimeMs = 0
+  }
+
+  const realElapsedMs = nowReal - startRealMs
   while (simTimeMs + LOOP_INTERVAL_MS <= realElapsedMs) {
     simTimeMs += LOOP_INTERVAL_MS
     sim.setMillis(Math.floor(simTimeMs))
+      sim.toneLogClear()
     sim.loop()
+
+    // If loop() contained blocking tone sequences (e.g. buzzerWinnerChirp),
+    // the sim clock jumped ahead inside delay(). Drain the tone log,
+    // schedule the sound via Web Audio, and freeze the game loop until
+    // the sound finishes playing in real time.
+    const actualSimMs = sim.getMillis()
+    if (actualSimMs > simTimeMs + LOOP_INTERVAL_MS) {
+      const log = sim.toneLog()
+      let durationSec = 0
+      if (log.length) {
+        durationSec = scheduleToneLog(log)
+        sim.toneLogClear()
+      }
+      // Stop the persistent oscillator so it doesn't drone over the scheduled sound
+      setTone(0)
+      // Freeze the game loop for the sound duration
+      frozenSimTimeMs = actualSimMs
+      freezeUntilRealMs = performance.now() + durationSec * 1000
+      break
+    }
   }
 
   // Read LED states
@@ -160,8 +199,10 @@ function tick() {
   }
   leds.value = newLeds
 
-  // Sync buzzer tone
-  setTone(sim.toneFreq())
+  // Sync buzzer tone (for non-blocking tones like beeps)
+  if (freezeUntilRealMs === 0) {
+    setTone(sim.toneFreq())
+  }
 }
 
 onMounted(() => {

@@ -91,8 +91,6 @@ unsigned long rightReadyMs = 0; // when right player became ready (for timeout)
 // Button state tracking
 bool buttonLeftPressed = false;
 bool buttonRightPressed = false;
-bool buttonLeftRaw = HIGH;
-bool buttonRightRaw = HIGH;
 unsigned long lastButtonCheckMs = 0;
 }  // namespace
 
@@ -171,14 +169,39 @@ void buzzerFalseStart() {
   tone(BUZZER_PIN, 200, 500);  // low angry buzz
 }
 
-// Play winner celebration chirp
+// Play winner celebration sound (~2.5 seconds)
+// Rising triumphant fanfare inspired by podium celebration jingles
 void buzzerWinnerChirp() {
-  tone(BUZZER_PIN, 1000, 100);
+  // Fanfare phrase 1 — quick ascending triplet
+  tone(BUZZER_PIN, 800, 60);
+  delay(80);
+  tone(BUZZER_PIN, 1000, 60);
+  delay(80);
+  tone(BUZZER_PIN, 1200, 200);
+  delay(250);
+
+  // Fanfare phrase 2 — higher ascending triplet
+  tone(BUZZER_PIN, 1200, 120);
+  delay(140);
+  tone(BUZZER_PIN, 1500, 120);
+  delay(140);
+  tone(BUZZER_PIN, 1800, 250);
+  delay(300);
+
+  // Victory sustain — long high note with vibrato
+  for (int i = 0; i < 12; i++) {
+    tone(BUZZER_PIN, 2000 + (i % 2 == 0 ? 40 : -40));
+    delay(50);
+  }
+
+  // Descending flourish to finish
+  tone(BUZZER_PIN, 2000, 100);
   delay(120);
-  tone(BUZZER_PIN, 1500, 100);
+  tone(BUZZER_PIN, 1800, 100);
   delay(120);
-  tone(BUZZER_PIN, 2000, 150);
-  delay(150);
+  tone(BUZZER_PIN, 2200, 350);
+  delay(400);
+
   noTone(BUZZER_PIN);
 }
 
@@ -221,6 +244,9 @@ void updateButtonStates() {
   buttonLeftPressed = (leftRaw == LOW);
   buttonRightPressed = (rightRaw == LOW);
 }
+
+// Forward declarations
+void resetRestartReadiness();
 
 void setup() {
   Serial.begin(9600);
@@ -279,6 +305,7 @@ void setup() {
   // Start in IDLE state, waiting for button press
   currentState = IDLE;
   stateStartMs = millis();
+  resetRestartReadiness();
 }
 
 void updateRestartReadiness() {
@@ -330,7 +357,7 @@ void updateWinnerBlink() {
     return;
   }
 
-  bool blinkOn = ((millis() / BLINK_INTERVAL_MS) % 2) == 0;
+  bool blinkOn = ((elapsed / BLINK_INTERVAL_MS) % 2) == 0;
 
   allLedsOff();
   if (blinkOn) {
@@ -357,7 +384,7 @@ void updateReadyIndicator() {
   // Show ready-state feedback once at least one player is ready
   // AND the winner blink has ended (avoid two competing blink rates).
   if (!leftReady && !rightReady) return;
-  if (millis() - winnerDeclaredMs < BLINK_DURATION_MS) return;
+  if (winner != 0 && millis() - winnerDeclaredMs < BLINK_DURATION_MS) return;
 
   bool promptBlink = ((millis() / READY_BLINK_INTERVAL_MS) % 2) == 0;
 
@@ -385,13 +412,21 @@ void loop() {
 
   switch (currentState) {
     case IDLE: {
-      // Wait for both buttons to be pressed simultaneously
-      if (buttonLeftPressed && buttonRightPressed) {
-        currentState = WAIT_RELEASE;
+      // Same press-and-release readiness as the restart states
+      updateRestartReadiness();
+      updateReadyIndicator();
+
+      if (leftReady && rightReady) {
+        currentState = LIGHTING_UP;
         stateStartMs = now;
+        litColumnCount = 0;
+        winner = 0;
+        leftButtonPressedInGame = false;
+        rightButtonPressedInGame = false;
+        allLedsOff();
         Serial.print("[");
         Serial.print(now);
-        Serial.println("ms] ═══ BOTH PRESSED - RELEASE TO START ═══");
+        Serial.println("ms] ═══ BOTH READY - SEQUENCE START ═══");
       }
       break;
     }
@@ -411,7 +446,8 @@ void loop() {
 
     case LIGHTING_UP: {
       // Early start detection — buttons are guaranteed released before entering
-      // this state (via WAIT_RELEASE), so any press is an early start.
+      // this state (players must press-and-release to signal ready), so any
+      // press is an early start.
       if (buttonLeftPressed && !leftButtonPressedInGame) {
           // FALSE START - LEFT PLAYER LOSES, RIGHT PLAYER WINS!
           leftButtonPressedInGame = true;
@@ -560,6 +596,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🤝 TIE! Both players pressed at the same time!");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       } else if (buttonLeftPressed && !leftButtonPressedInGame) {
         leftButtonPressedInGame = true;
         winner = 1;
@@ -573,6 +612,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🏆 LEFT PLAYER WINS! - Top row stays ON");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       } else if (buttonRightPressed && !rightButtonPressedInGame) {
         rightButtonPressedInGame = true;
         winner = 2;
@@ -586,6 +628,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🏆 RIGHT PLAYER WINS! - Bottom row stays ON");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       }
 
       // If no one has pressed yet after 500ms, move to waiting state
@@ -617,6 +662,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🤝 TIE! Both players pressed at the same time!");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       } else if (buttonLeftPressed && !leftButtonPressedInGame) {
         // Left player pressed first - LEFT WINS!
         leftButtonPressedInGame = true;
@@ -631,6 +679,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🏆 LEFT PLAYER WINS! - Top row stays ON");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       } else if (buttonRightPressed && !rightButtonPressedInGame) {
         // Right player pressed first - RIGHT WINS!
         rightButtonPressedInGame = true;
@@ -645,6 +696,9 @@ void loop() {
         Serial.print("[");
         Serial.print(now);
         Serial.println("ms] 🏆 RIGHT PLAYER WINS! - Bottom row stays ON");
+        buzzerWinnerChirp();
+        winnerDeclaredMs = millis();
+        stateStartMs = millis();
       }
       break;
     }
