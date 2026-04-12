@@ -60,6 +60,12 @@ unsigned int sim_get_tone_freq() {
 }
 uint8_t      sim_get_tone_pin()  { return sim_tone_pin;  }
 
+// ── Tone event log access ───────────────────────────────────────────────────
+unsigned int  sim_get_tone_log_count()             { return sim_tone_log_count; }
+unsigned long sim_get_tone_log_ms(unsigned int i)  { return (i < sim_tone_log_count) ? sim_tone_log[i].ms   : 0; }
+unsigned int  sim_get_tone_log_freq(unsigned int i){ return (i < sim_tone_log_count) ? sim_tone_log[i].freq : 0; }
+void          sim_tone_log_clear()                 { sim_tone_log_count = 0; }
+
 // ── Full reset (re-initialise all simulated state) ──────────────────────────
 void sim_reset() {
     for (uint8_t i = 0; i < SIM_MAX_PINS; i++) {
@@ -71,6 +77,7 @@ void sim_reset() {
     sim_tone_freq   = 0;
     sim_tone_pin    = 0;
     sim_tone_end_ms = 0;
+    sim_tone_log_count = 0;
 }
 
 }  // extern "C"

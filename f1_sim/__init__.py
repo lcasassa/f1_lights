@@ -96,6 +96,18 @@ class F1Sim:
         L.sim_get_tone_pin.restype = ctypes.c_uint8
         L.sim_get_tone_pin.argtypes = []
 
+        L.sim_get_tone_log_count.restype = ctypes.c_uint
+        L.sim_get_tone_log_count.argtypes = []
+
+        L.sim_get_tone_log_ms.restype = ctypes.c_ulong
+        L.sim_get_tone_log_ms.argtypes = [ctypes.c_uint]
+
+        L.sim_get_tone_log_freq.restype = ctypes.c_uint
+        L.sim_get_tone_log_freq.argtypes = [ctypes.c_uint]
+
+        L.sim_tone_log_clear.restype = None
+        L.sim_tone_log_clear.argtypes = []
+
     # ── Sketch entry-points ──────────────────────────────────────────────────
 
     def setup(self):
@@ -139,6 +151,18 @@ class F1Sim:
     def tone_pin(self) -> int:
         """Return the pin the tone is currently playing on."""
         return self._lib.sim_get_tone_pin()
+
+    def tone_log(self) -> list:
+        """Return the tone event log as a list of (ms, freq) tuples."""
+        n = self._lib.sim_get_tone_log_count()
+        return [
+            (self._lib.sim_get_tone_log_ms(i), self._lib.sim_get_tone_log_freq(i))
+            for i in range(n)
+        ]
+
+    def tone_log_clear(self):
+        """Clear the tone event log."""
+        self._lib.sim_tone_log_clear()
 
     # ── LED helpers ──────────────────────────────────────────────────────────
 

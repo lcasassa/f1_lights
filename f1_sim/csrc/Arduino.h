@@ -42,13 +42,22 @@ int      analogRead(uint8_t pin);
 
 // ── Time API ────────────────────────────────────────────────────────────────
 unsigned long millis();
-void          delay(unsigned long ms);          // no-op in sim
+void          delay(unsigned long ms);          // advances sim clock
 void          delayMicroseconds(unsigned int us); // no-op
 
 // ── Tone API (passive buzzer) ────────────────────────────────────────────────
 extern unsigned int   sim_tone_freq;    // current tone frequency (0 = silent)
 extern uint8_t        sim_tone_pin;     // pin the tone is playing on
 extern unsigned long  sim_tone_end_ms;  // millis() when tone expires (0 = continuous / no expiry)
+
+// Tone event log — records every tone/noTone call so the frontend can replay them.
+struct SimToneEvent {
+    unsigned long ms;       // sim clock when this event occurred
+    unsigned int  freq;     // frequency (0 = silence)
+};
+constexpr unsigned int SIM_TONE_LOG_MAX = 2048;
+extern SimToneEvent sim_tone_log[SIM_TONE_LOG_MAX];
+extern unsigned int  sim_tone_log_count;
 
 void tone(uint8_t pin, unsigned int frequency, unsigned long duration = 0);
 void noTone(uint8_t pin);
