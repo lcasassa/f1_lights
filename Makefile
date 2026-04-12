@@ -110,6 +110,7 @@ WASM_SOURCES = $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.
 wasm: $(WASM_OUT)
 
 $(WASM_OUT): $(WASM_SOURCES)
+	@mkdir -p web/public
 	@echo "Building WASM module..."
 	emcc -std=c++17 -O2 \
 		-I $(SIM_CSRC) \
