@@ -11,23 +11,35 @@ namespace {
 //
 // Adjust the pins below to match your actual wiring:
 constexpr uint8_t PIN_MAP[] = {
-  A0,  // POS-1  (Row 1, leftmost)
-  4,   // POS-2  (Row 1)
+//  A0,  // POS-1  (Row 1, leftmost)
+//  4,   // POS-2  (Row 1)
+//  12,  // POS-3  (Row 1)
+//  11,  // POS-4  (Row 1)
+//  10,  // POS-5  (Row 1, rightmost)
+//  5,   // POS-6  (Row 2, leftmost)
+//  6,   // POS-7  (Row 2)
+//  7,   // POS-8  (Row 2)
+//  8,   // POS-9  (Row 2)
+//  9    // POS-10 (Row 2, rightmost)
+
+
+  4,   // POS-1  (Row 1, leftmost)
+  11,  // POS-2  (Row 1)
   12,  // POS-3  (Row 1)
-  11,  // POS-4  (Row 1)
-  10,  // POS-5  (Row 1, rightmost)
+  A0,  // POS-4  (Row 1)
+  A1,  // POS-5  (Row 1, rightmost)
   5,   // POS-6  (Row 2, leftmost)
-  6,   // POS-7  (Row 2)
-  7,   // POS-8  (Row 2)
+  10,  // POS-7  (Row 2)
+  9,   // POS-8  (Row 2)
   8,   // POS-9  (Row 2)
-  9    // POS-10 (Row 2, rightmost)
+  7    // POS-10 (Row 2, rightmost)
 };
 
 constexpr uint8_t NUM_LEDS = 10;
 
 // Button Configuration
-constexpr uint8_t BUTTON_LEFT = 3;                      // Left button on pin 2 (pull-up)
-constexpr uint8_t BUTTON_RIGHT = 2;                     // Right button on pin 3 (pull-up)
+constexpr uint8_t BUTTON_LEFT = 2;                      // Left button on pin 2 (pull-up)
+constexpr uint8_t BUTTON_RIGHT = 3;                     // Right button on pin 3 (pull-up)
 constexpr unsigned long BUTTON_DEBOUNCE_MS = 10;        // Debounce time in milliseconds
 
 // F1 Start Sequence Timing (correct F1 specifications)
