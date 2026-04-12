@@ -51,7 +51,19 @@ unsigned long millis() {
     return sim_millis_value;
 }
 
-void delay(unsigned long ms) { sim_millis_value += ms; }
+static void sim_tone_log_push(unsigned int freq);
+
+void delay(unsigned long ms) {
+    unsigned long target = sim_millis_value + ms;
+    // If a timed tone expires during this delay, log the silence at expiry time
+    if (sim_tone_freq != 0 && sim_tone_end_ms != 0 && sim_tone_end_ms <= target && sim_tone_end_ms > sim_millis_value) {
+        sim_millis_value = sim_tone_end_ms;
+        sim_tone_freq = 0;
+        sim_tone_end_ms = 0;
+        sim_tone_log_push(0);
+    }
+    sim_millis_value = target;
+}
 void delayMicroseconds(unsigned int) { /* no-op */ }
 
 static void sim_tone_log_push(unsigned int freq) {

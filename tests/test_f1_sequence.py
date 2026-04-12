@@ -5,13 +5,13 @@ from f1_sim import F1Sim
 
 
 def start_sequence(sim: F1Sim):
-    """Press both buttons, release both, wait for LIGHTING_UP to begin (from IDLE)."""
+    """Both players press-and-release to signal ready (from IDLE)."""
     sim.press_both()
     sim.advance_millis(15)
-    sim.loop()   # IDLE -> WAIT_RELEASE
+    sim.loop()   # both seen pressed
     sim.release_both()
     sim.advance_millis(15)
-    sim.loop()   # WAIT_RELEASE -> LIGHTING_UP, column 1 lights up
+    sim.loop()   # both ready -> LIGHTING_UP
     sim.advance_millis(1)
     sim.loop()   # LIGHTING_UP: column 1 on
 
@@ -563,3 +563,89 @@ def test_ready_indicator_off_when_no_one_ready(sim: F1Sim):
     assert sim.led_states() == {i: False for i in range(1, 11)}
 
 
+def test_first_round_staggered_ready(sim: F1Sim):
+    """On the very first round (IDLE), one player can signal ready and wait for the other.
+
+    This verifies the same press-and-release readiness mechanism works in IDLE,
+    not just in the restart states.
+    """
+    sim.advance_millis(100)
+
+    # Left player presses and releases first
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Left is ready, but game should NOT have started (right hasn't signalled yet).
+    # POS-1 solid (left ready indicator). Verify game hasn't started by advancing
+    # 1s and confirming column 2 doesn't light up (it would if we were in LIGHTING_UP).
+    assert sim.led_state(1) is True
+    sim.advance_millis(1000)
+    sim.loop()
+    assert sim.led_state(2) is False, "Column 2 lit — game started without right player!"
+    assert sim.led_state(7) is False, "Column 2 lit — game started without right player!"
+
+    # Right player signals ready
+    sim.press_right()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_right()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(1)
+    sim.loop()
+
+    # Now both ready -> LIGHTING_UP, column 1 on
+    assert sim.led_states() == {
+        1: True, 2: False, 3: False, 4: False, 5: False,
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }
+
+
+def test_first_round_ready_timeout(sim: F1Sim):
+    """On the first round (IDLE), a player's readiness expires after 2s if the other doesn't signal."""
+    sim.advance_millis(100)
+
+    # Left player signals ready
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+
+    assert sim.led_state(1) is True  # ready indicator
+
+    # Wait 2s — left's readiness expires
+    sim.advance_millis(2000)
+    sim.loop()
+
+    # Now right signals ready — should NOT start (left expired)
+    sim.press_right()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_right()
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Game hasn't started (only one player ready at a time)
+    # POS-6 should now be solid (right ready), POS-1 blinking (left not ready)
+    assert sim.led_state(6) is True
+
+    # Left signals again — now both ready -> LIGHTING_UP
+    sim.press_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.release_left()
+    sim.advance_millis(15)
+    sim.loop()
+    sim.advance_millis(1)
+    sim.loop()
+
+    assert sim.led_states() == {
+        1: True, 2: False, 3: False, 4: False, 5: False,
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }

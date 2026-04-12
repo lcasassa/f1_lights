@@ -23,7 +23,7 @@ def sim():
 @pytest.fixture()
 def sim_at_winner_display(sim: F1Sim) -> F1Sim:
     """Drive the sim from IDLE to WINNER_DISPLAY_DELAY with right player winning."""
-    # Start sequence: press both -> WAIT_RELEASE -> release -> LIGHTING_UP
+    # Start sequence: press both -> release -> both ready -> LIGHTING_UP
     sim.advance_millis(100)
     sim.press_both()
     sim.advance_millis(15)
