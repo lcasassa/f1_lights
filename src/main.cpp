@@ -103,52 +103,33 @@ void buzzerBeep(unsigned int freqHz, unsigned long durationMs) {
   noTone(BUZZER_PIN);
 }
 
-// Simulate an F1 engine starting up.
-// Sweeps from a low rumble up through mid-range to a high-rev scream,
-// mimicking the characteristic rising whine of a Formula 1 power unit.
+// Quick "vrum-vrum" car rev sound (under 1 second total).
+// Two short rev blips mimicking a race car blipping the throttle.
 void playF1EngineStartup() {
-  // Phase 1 — Starter motor crank (low stuttering rumble)
-  for (int i = 0; i < 6; i++) {
-    tone(BUZZER_PIN, 80 + i * 10);
-    delay(60);
-    noTone(BUZZER_PIN);
-    delay(30);
-  }
-
-  // Phase 2 — Engine catches, RPM climbing (smooth sweep 150 → 800 Hz)
-  for (int freq = 150; freq <= 800; freq += 5) {
+  // Rev 1 — quick rise 150 → 1200 Hz  (~200 ms)
+  for (int freq = 150; freq <= 1200; freq += 50) {
     tone(BUZZER_PIN, freq);
-    delay(4);  // ~2.6 s for sweep
+    delay(8);
   }
-
-  // Phase 3 — Mid-range rev hold with vibrato (800 Hz wobble)
-  for (int i = 0; i < 20; i++) {
-    tone(BUZZER_PIN, 800 + (i % 2 == 0 ? 30 : -30));
-    delay(30);
-  }
-
-  // Phase 4 — Rev climb to high RPM (800 → 2500 Hz, faster sweep)
-  for (int freq = 800; freq <= 2500; freq += 15) {
+  // Drop back down 1200 → 300 Hz  (~100 ms)
+  for (int freq = 1200; freq >= 300; freq -= 80) {
     tone(BUZZER_PIN, freq);
-    delay(3);
+    delay(7);
   }
 
-  // Phase 5 — High-rev scream & blip (quick rev burst)
-  for (int freq = 2500; freq <= 3500; freq += 30) {
+  // Tiny gap between blips
+  noTone(BUZZER_PIN);
+  delay(40);
+
+  // Rev 2 — harder blip 200 → 1800 Hz  (~250 ms)
+  for (int freq = 200; freq <= 1800; freq += 60) {
     tone(BUZZER_PIN, freq);
-    delay(2);
+    delay(8);
   }
-
-  // Phase 6 — Settle to idle (3500 → 600 Hz, gentle fall)
-  for (int freq = 3500; freq >= 600; freq -= 20) {
+  // Settle 1800 → 400 Hz  (~120 ms)
+  for (int freq = 1800; freq >= 400; freq -= 100) {
     tone(BUZZER_PIN, freq);
-    delay(3);
-  }
-
-  // Short idle burble
-  for (int i = 0; i < 8; i++) {
-    tone(BUZZER_PIN, 600 + (i % 2 == 0 ? 20 : -20));
-    delay(50);
+    delay(7);
   }
 
   noTone(BUZZER_PIN);
@@ -169,40 +150,226 @@ void buzzerFalseStart() {
   tone(BUZZER_PIN, 200, 500);  // low angry buzz
 }
 
-// Play winner celebration sound (~2.5 seconds)
-// Rising triumphant fanfare inspired by podium celebration jingles
-void buzzerWinnerChirp() {
-  // Fanfare phrase 1 — quick ascending triplet
-  tone(BUZZER_PIN, 800, 60);
-  delay(80);
-  tone(BUZZER_PIN, 1000, 60);
-  delay(80);
-  tone(BUZZER_PIN, 1200, 200);
-  delay(250);
+// ── Winner melodies — 10 iconic tunes everyone can recognise ────────────────
+// Each melody is ~3 seconds, played on a single-voice piezo buzzer.
+// Note frequencies (Hz):
+//   C4=262  C#4=277  D4=294  Eb4=311  E4=330  F4=349  F#4=370
+//   G4=392  G#4=415  A4=440  Bb4=466  B4=494
+//   C5=523  C#5=554  D5=587  Eb5=622  E5=659  F5=698  F#5=740
+//   G5=784  G#5=831  A5=880  Bb5=932  B5=988
+//   C6=1047 D6=1175  E6=1319 F6=1397  G6=1568
 
-  // Fanfare phrase 2 — higher ascending triplet
-  tone(BUZZER_PIN, 1200, 120);
-  delay(140);
-  tone(BUZZER_PIN, 1500, 120);
-  delay(140);
-  tone(BUZZER_PIN, 1800, 250);
-  delay(300);
+// Helper: play a note then silence gap (blocking).
+// The gap separates consecutive notes so they don't blur together.
+static void n(unsigned int freq, unsigned long durMs, unsigned long gapMs = 20) {
+  tone(BUZZER_PIN, freq, durMs);
+  delay(durMs + gapMs);
+}
 
-  // Victory sustain — long high note with vibrato
-  for (int i = 0; i < 12; i++) {
-    tone(BUZZER_PIN, 2000 + (i % 2 == 0 ? 40 : -40));
-    delay(50);
-  }
-
-  // Descending flourish to finish
-  tone(BUZZER_PIN, 2000, 100);
-  delay(120);
-  tone(BUZZER_PIN, 1800, 100);
-  delay(120);
-  tone(BUZZER_PIN, 2200, 350);
-  delay(400);
-
+// Helper: rest (silence)
+static void r(unsigned long durMs) {
   noTone(BUZZER_PIN);
+  delay(durMs);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 1) Super Mario Bros — main theme opening
+//    Original tempo ≈200 BPM → eighth = 150ms, quarter = 300ms
+//    The most recognisable 8-bit melody in history.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody1() {
+  constexpr int E = 150, Q = 300, DQ = 450;
+  // E5 E5 r E5 r C5 E5 . G5 . . G4
+  n(659, E); n(659, E); r(E);
+  n(659, E); r(E); n(523, E);
+  n(659, Q); r(E);
+  n(784, DQ); r(E); r(Q);
+  n(392, DQ);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 2) Imperial March — Star Wars / Darth Vader's theme
+//    Original tempo ≈104 BPM → quarter ≈ 577ms
+//    Simplified to 108 BPM → quarter = 556ms for rounder numbers.
+//    Three heavy Gs, then the Eb-Bb-G motif — unmistakable.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody2() {
+  constexpr int Q = 500, DQ = 750, E = 250;
+  // G4. G4. G4. Eb4 Bb4 | G4. Eb4 Bb4 G4-
+  n(392, DQ); n(392, DQ); n(392, DQ);
+  n(311, Q);  n(466, E);
+  n(392, DQ);
+  n(311, Q);  n(466, E);
+  n(392, DQ + Q);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 3) Smoke On The Water — Deep Purple
+//    Tempo ≈112 BPM, 4/4 time.  quarter = 535ms, eighth = 268ms.
+//    The riff everyone plays on day one of guitar lessons.
+//    Rhythm: ♪♪ ♩.  (rest) | ♪♪ ♪♩.  (rest) | ♪♪ ♩ ♪ ♩.
+//    "duh-duh-duuuh,  duh-duh duh-duuuh,  duh-duh-duuh-duh-duuuh"
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody3() {
+  // At 112 BPM: eighth = 268ms, quarter = 535ms, dotted-quarter = 803ms
+  // Using slightly rounded values for clean playback:
+  constexpr int E = 268, Q = 535, DQ = 803;
+
+  // Phrase 1: G4 Bb4 C5~~~  (rest)
+  n(392, E); n(466, E); n(523, DQ); r(E);
+
+  // Phrase 2: G4 Bb4 Db5 C5~~~  (rest)
+  n(392, E); n(466, E); n(554, E); n(523, DQ); r(E);
+
+  // Phrase 3: G4 Bb4 C5~ Bb4 G4~~~
+  n(392, E); n(466, E); n(523, Q); n(466, E); n(392, DQ);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 4) Ode To Joy — Beethoven's 9th
+//    Tempo ≈120 BPM → quarter = 500ms, dotted quarter = 750ms
+//    First 4 bars of the famous theme.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody4() {
+  constexpr int Q = 400, DQ = 600, H = 800, E = 200;
+  // E4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | E4. D4 D4-
+  n(330, Q); n(330, Q); n(349, Q); n(392, Q);
+  n(392, Q); n(349, Q); n(330, Q); n(294, Q);
+  n(262, Q); n(262, Q); n(294, Q); n(330, Q);
+  n(330, DQ); n(294, E); n(294, H);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 5) We Are The Champions — Queen
+//    Tempo ≈62 BPM (slow 6/8). Eighth ≈ 160ms, beat ≈ 484ms
+//    "We are the champions, my friends"
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody5() {
+  // We     are    the    cham-    -pi-   ons     my     fri----ends
+  // F4     Ab4    C5     D5       C5     Bb4    A4     Bb4
+  n(349, 250); n(415, 250); n(523, 250); n(587, 500);
+  n(523, 200); n(466, 200); n(440, 350); n(466, 600);
+  r(100);
+  // And we'll keep on fighting till the end
+  // Bb4    C5     D5----
+  n(466, 250); n(523, 250); n(587, 800);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6) We Will Rock You — Queen
+//    Tempo ≈82 BPM → quarter ≈ 732ms.
+//    The vocal hook: "We will, we will rock you" with the boom-boom-clap.
+//    Played at a slightly faster tempo to keep it under 3s.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody6() {
+  // Boom - boom - CLAP (low percussive notes)
+  n(147, 150); n(147, 150); r(100); n(1200, 80); r(350);
+  n(147, 150); n(147, 150); r(100); n(1200, 80); r(350);
+  // "We will, we will rock you!"
+  //  A4   A4    A4   A4    A4  G4---
+  n(440, 180); n(440, 180); n(440, 180); n(440, 180);
+  n(440, 250); n(392, 600);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 7) Jingle Bells — chorus
+//    Tempo ≈ 120 BPM → quarter = 500ms, eighth = 250ms
+//    "Jingle bells, jingle bells, jingle all the way"
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody7() {
+  constexpr int E = 180, Q = 360, H = 720;
+  // E E E | E E E | E G C D E-
+  n(659, E); n(659, E); n(659, Q); r(40);
+  n(659, E); n(659, E); n(659, Q); r(40);
+  n(659, E); n(784, E); n(523, E); n(587, E);
+  n(659, H);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 8) Seven Nation Army — The White Stripes
+//    Tempo ≈124 BPM → quarter ≈ 484ms, eighth ≈ 242ms
+//    The stadium-anthem bass riff — everyone knows this one.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody8() {
+  constexpr int E = 242, Q = 484, DQ = 726, H = 968;
+  // E5---  E5 G5-- E5- D5----  C5---- B4--------
+  n(330, Q + E); r(20);
+  n(330, E); n(392, Q); r(20);
+  n(330, E); r(20);
+  n(294, DQ); r(20);
+  n(262, DQ); r(20);
+  n(247, H);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 9) The Final Countdown — Europe
+//    Tempo ≈118 BPM → quarter ≈ 508ms, eighth ≈ 254ms, sixteenth ≈ 127ms
+//    The synth keyboard intro that everyone air-keyboards to.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody9() {
+  constexpr int S = 127, E = 254, Q = 508, DQ = 762;
+  // Phrase 1: Db5-D5-- . Db5 . A4---
+  n(554, S); n(587, Q); r(S); n(554, E); r(S); n(440, DQ); r(E);
+  // Phrase 2: Db5-D5-- . Db5 A4--
+  n(554, S); n(587, Q); r(S); n(554, E); n(440, Q); r(E);
+  // Phrase 3: E5-F#5-- . E5 . Db5 . D5- Db5--
+  n(659, S); n(740, Q); r(S); n(659, E); r(S); n(554, E);
+  r(S); n(587, E); n(554, Q);
+  noTone(BUZZER_PIN);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 10) Axel F — Beverly Hills Cop theme / "Crazy Frog"
+//     Tempo ≈105 BPM with triplet swing.
+//     Quarter = 571ms.  Triplet-eighth = 190ms.
+//     Swing pairs: long = 380ms (2 triplets), short = 190ms (1 triplet).
+//     The funky synth hook everyone hums.
+// ────────────────────────────────────────────────────────────────────────────
+static void winnerMelody10() {
+  constexpr int T = 190;          // triplet-eighth
+  constexpr int L = 380;          // long swing eighth (2 triplets)
+  constexpr int S = 190;          // short swing eighth (1 triplet)
+  constexpr int Q = 571;          // quarter note
+
+  // Phrase 1: F4 . Ab4 . F4-F4 Bb4 F4 Eb4
+  n(349, L);  r(S);               // F4 (long) + rest
+  n(415, L);  r(S);               // Ab4 (long) + rest
+  n(349, S);  n(349, S);          // F4-F4 (two quick)
+  n(466, L);  n(349, S);          // Bb4 (long) F4 (short)
+  n(311, L);                      // Eb4 (long)
+  r(T);                           // brief pause between phrases
+
+  // Phrase 2: F4 . C5 . F4-F4 Db5 C5 Ab4 F4 C5 F5
+  n(349, L);  r(S);               // F4 (long) + rest
+  n(523, L);  r(S);               // C5 (long) + rest
+  n(349, S);  n(349, S);          // F4-F4 (two quick)
+  n(554, L);  n(523, S);          // Db5 (long) C5 (short)
+  n(415, S);                      // Ab4 (short)
+  n(349, S);  n(523, S);          // F4 (short) C5 (short)
+  n(698, Q);                      // F5 (held)
+  noTone(BUZZER_PIN);
+}
+
+// Array of melody function pointers for random selection
+typedef void (*MelodyFn)();
+constexpr uint8_t NUM_WINNER_MELODIES = 10;
+MelodyFn winnerMelodies[NUM_WINNER_MELODIES] = {
+  winnerMelody1, winnerMelody2, winnerMelody3, winnerMelody4, winnerMelody5,
+  winnerMelody6, winnerMelody7, winnerMelody8, winnerMelody9, winnerMelody10
+};
+
+// Play a randomly selected winner melody (~3 seconds each)
+void buzzerWinnerChirp() {
+  uint8_t idx = static_cast<uint8_t>(random(NUM_WINNER_MELODIES));
+  winnerMelodies[idx]();
 }
 
 // ── LED helpers ─────────────────────────────────────────────────────────
