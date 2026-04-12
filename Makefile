@@ -116,7 +116,7 @@ $(WASM_OUT): $(WASM_SOURCES)
 		$(SIM_CSRC)/arduino_stub.cpp \
 		$(SIM_CSRC)/sim_bridge.cpp \
 		src/main.cpp \
-		-s EXPORTED_FUNCTIONS='["_sim_setup","_sim_loop","_sim_set_millis","_sim_get_millis","_sim_advance_millis","_sim_get_pin_value","_sim_set_pin_input","_sim_reset"]' \
+		-s EXPORTED_FUNCTIONS='["_sim_setup","_sim_loop","_sim_set_millis","_sim_get_millis","_sim_advance_millis","_sim_get_pin_value","_sim_set_pin_input","_sim_reset","_sim_get_tone_freq","_sim_get_tone_pin"]' \
 		-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
 		-s MODULARIZE=1 \
 		-s EXPORT_NAME='createF1Sim' \

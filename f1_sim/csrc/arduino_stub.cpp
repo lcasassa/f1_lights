@@ -8,6 +8,10 @@ uint8_t sim_pin_input[SIM_MAX_PINS]  = {};  // what digitalRead returns
 
 unsigned long sim_millis_value = 0;
 
+unsigned int   sim_tone_freq   = 0;
+uint8_t        sim_tone_pin    = 0;
+unsigned long  sim_tone_end_ms = 0;
+
 HardwareSerial Serial;
 
 // ── Arduino API implementations ─────────────────────────────────────────────
@@ -47,8 +51,17 @@ unsigned long millis() {
 void delay(unsigned long) { /* no-op */ }
 void delayMicroseconds(unsigned int) { /* no-op */ }
 
-void tone(uint8_t, unsigned int, unsigned long) { /* no-op in sim */ }
-void noTone(uint8_t) { /* no-op in sim */ }
+void tone(uint8_t pin, unsigned int freq, unsigned long duration) {
+    sim_tone_pin    = pin;
+    sim_tone_freq   = freq;
+    sim_tone_end_ms = (duration > 0) ? (sim_millis_value + duration) : 0;
+}
+void noTone(uint8_t pin) {
+    if (pin == sim_tone_pin) {
+        sim_tone_freq   = 0;
+        sim_tone_end_ms = 0;
+    }
+}
 
 void randomSeed(unsigned long seed) {
     srand(static_cast<unsigned int>(seed));

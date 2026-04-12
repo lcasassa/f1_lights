@@ -26,12 +26,58 @@ let startRealMs = 0
 let simTimeMs = 0
 let rafId = null
 
+// ── Web Audio for buzzer tones ──────────────────────────────────────────────
+let audioCtx = null
+let oscillator = null
+let gainNode = null
+let currentFreq = 0
+
+function ensureAudioCtx() {
+  if (audioCtx) return
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  gainNode = audioCtx.createGain()
+  gainNode.gain.value = 0.12 // keep volume moderate
+  gainNode.connect(audioCtx.destination)
+}
+
+function setTone(freq) {
+  if (freq === currentFreq) return
+  currentFreq = freq
+
+  if (freq === 0) {
+    // Stop
+    if (oscillator) {
+      oscillator.stop()
+      oscillator.disconnect()
+      oscillator = null
+    }
+    return
+  }
+
+  ensureAudioCtx()
+
+  if (oscillator) {
+    // Just update frequency on the existing oscillator
+    oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime)
+  } else {
+    oscillator = audioCtx.createOscillator()
+    oscillator.type = 'square'
+    oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime)
+    oscillator.connect(gainNode)
+    oscillator.start()
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const keysDown = new Set()
 
 function onKeyDown(e) {
   if (e.repeat) return
   keysDown.add(e.key)
   updateButtons()
+  // Resume AudioContext on user gesture (browser policy)
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume()
+  ensureAudioCtx()
 }
 
 function onKeyUp(e) {
@@ -71,6 +117,9 @@ function tick() {
     newLeds.push(sim.ledState(i))
   }
   leds.value = newLeds
+
+  // Sync buzzer tone
+  setTone(sim.toneFreq())
 }
 
 onMounted(() => {
@@ -92,6 +141,8 @@ onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  setTone(0)
+  if (audioCtx) audioCtx.close()
 })
 </script>
 

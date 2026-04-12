@@ -46,6 +46,10 @@ void          delay(unsigned long ms);          // no-op in sim
 void          delayMicroseconds(unsigned int us); // no-op
 
 // ── Tone API (passive buzzer) ────────────────────────────────────────────────
+extern unsigned int   sim_tone_freq;    // current tone frequency (0 = silent)
+extern uint8_t        sim_tone_pin;     // pin the tone is playing on
+extern unsigned long  sim_tone_end_ms;  // millis() when tone expires (0 = continuous / no expiry)
+
 void tone(uint8_t pin, unsigned int frequency, unsigned long duration = 0);
 void noTone(uint8_t pin);
 
