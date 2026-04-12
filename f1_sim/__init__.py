@@ -24,9 +24,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Pin mapping — must match main.cpp
 _A0 = 14
-_PIN_MAP = [_A0, 4, 12, 11, 10, 5, 6, 7, 8, 9]  # POS-1..POS-10
-BUTTON_LEFT_PIN = 3
-BUTTON_RIGHT_PIN = 2
+_A1 = 15
+_PIN_MAP = [4, 11, 12, _A0, _A1, 5, 10, 9, 8, 7]  # POS-1..POS-10
+BUTTON_LEFT_PIN = 2
+BUTTON_RIGHT_PIN = 3
 HIGH = 1
 LOW = 0
 

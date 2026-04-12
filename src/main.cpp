@@ -37,6 +37,9 @@ constexpr uint8_t PIN_MAP[] = {
 
 constexpr uint8_t NUM_LEDS = 10;
 
+// Buzzer Configuration (Grove Passive Buzzer v1.1 on PWM pin 6)
+constexpr uint8_t BUZZER_PIN = 6;
+
 // Button Configuration
 constexpr uint8_t BUTTON_LEFT = 2;                      // Left button on pin 2 (pull-up)
 constexpr uint8_t BUTTON_RIGHT = 3;                     // Right button on pin 3 (pull-up)
@@ -92,6 +95,94 @@ bool buttonLeftRaw = HIGH;
 bool buttonRightRaw = HIGH;
 unsigned long lastButtonCheckMs = 0;
 }  // namespace
+
+// ── Buzzer helpers ──────────────────────────────────────────────────────
+
+// Play a short beep at the given frequency for the given duration (blocking)
+void buzzerBeep(unsigned int freqHz, unsigned long durationMs) {
+  tone(BUZZER_PIN, freqHz, durationMs);
+  delay(durationMs);
+  noTone(BUZZER_PIN);
+}
+
+// Simulate an F1 engine starting up.
+// Sweeps from a low rumble up through mid-range to a high-rev scream,
+// mimicking the characteristic rising whine of a Formula 1 power unit.
+void playF1EngineStartup() {
+  // Phase 1 — Starter motor crank (low stuttering rumble)
+  for (int i = 0; i < 6; i++) {
+    tone(BUZZER_PIN, 80 + i * 10);
+    delay(60);
+    noTone(BUZZER_PIN);
+    delay(30);
+  }
+
+  // Phase 2 — Engine catches, RPM climbing (smooth sweep 150 → 800 Hz)
+  for (int freq = 150; freq <= 800; freq += 5) {
+    tone(BUZZER_PIN, freq);
+    delay(4);  // ~2.6 s for sweep
+  }
+
+  // Phase 3 — Mid-range rev hold with vibrato (800 Hz wobble)
+  for (int i = 0; i < 20; i++) {
+    tone(BUZZER_PIN, 800 + (i % 2 == 0 ? 30 : -30));
+    delay(30);
+  }
+
+  // Phase 4 — Rev climb to high RPM (800 → 2500 Hz, faster sweep)
+  for (int freq = 800; freq <= 2500; freq += 15) {
+    tone(BUZZER_PIN, freq);
+    delay(3);
+  }
+
+  // Phase 5 — High-rev scream & blip (quick rev burst)
+  for (int freq = 2500; freq <= 3500; freq += 30) {
+    tone(BUZZER_PIN, freq);
+    delay(2);
+  }
+
+  // Phase 6 — Settle to idle (3500 → 600 Hz, gentle fall)
+  for (int freq = 3500; freq >= 600; freq -= 20) {
+    tone(BUZZER_PIN, freq);
+    delay(3);
+  }
+
+  // Short idle burble
+  for (int i = 0; i < 8; i++) {
+    tone(BUZZER_PIN, 600 + (i % 2 == 0 ? 20 : -20));
+    delay(50);
+  }
+
+  noTone(BUZZER_PIN);
+}
+
+// Play a short tone when each light column turns on (like F1 broadcast beep)
+void buzzerLightOnBeep() {
+  tone(BUZZER_PIN, 660, 80);  // short 660 Hz pip
+}
+
+// Play the GO signal sound (lights out!)
+void buzzerGoSignal() {
+  tone(BUZZER_PIN, 1200, 300);
+}
+
+// Play false-start penalty buzzer
+void buzzerFalseStart() {
+  tone(BUZZER_PIN, 200, 500);  // low angry buzz
+}
+
+// Play winner celebration chirp
+void buzzerWinnerChirp() {
+  tone(BUZZER_PIN, 1000, 100);
+  delay(120);
+  tone(BUZZER_PIN, 1500, 100);
+  delay(120);
+  tone(BUZZER_PIN, 2000, 150);
+  delay(150);
+  noTone(BUZZER_PIN);
+}
+
+// ── LED helpers ─────────────────────────────────────────────────────────
 
 void allLedsOff() {
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -169,8 +260,17 @@ void setup() {
   pinMode(BUTTON_LEFT, INPUT_PULLUP);
   pinMode(BUTTON_RIGHT, INPUT_PULLUP);
 
+  // Initialize buzzer pin (Grove Passive Buzzer v1.1)
+  pinMode(BUZZER_PIN, OUTPUT);
+
   allLedsOff();
   Serial.println("All LEDs initialized.");
+
+  // Play F1 engine startup sound on power-on
+  Serial.println("Playing F1 engine startup sound...");
+  playF1EngineStartup();
+  Serial.println("Engine started! Ready to race.\n");
+
   Serial.println("Waiting for button press...\n");
 
   // Seed random number generator with unconnected analog pin for true randomness
@@ -328,6 +428,7 @@ void loop() {
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
+          buzzerFalseStart();
           break;
         } else if (buttonRightPressed && !rightButtonPressedInGame) {
           // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
@@ -345,6 +446,7 @@ void loop() {
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
+          buzzerFalseStart();
           break;
         }
 
@@ -352,6 +454,7 @@ void loop() {
       if (elapsedInState >= litColumnCount * LIGHT_INTERVAL_MS && litColumnCount < 5) {
         digitalWrite(PIN_MAP[litColumnCount], HIGH);           // Top row
         digitalWrite(PIN_MAP[litColumnCount + 5], HIGH);       // Bottom row
+        buzzerLightOnBeep();  // F1-style beep for each light
 
         Serial.print("[");
         Serial.print(now);
@@ -399,6 +502,7 @@ void loop() {
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - LEFT PLAYER LOSES! Right row wins!");
+          buzzerFalseStart();
           break;
         } else if (buttonRightPressed && !rightButtonPressedInGame) {
           // FALSE START - RIGHT PLAYER LOSES, LEFT PLAYER WINS!
@@ -416,6 +520,7 @@ void loop() {
           Serial.print("[");
           Serial.print(now);
           Serial.println("ms] 🚨 EARLY START - RIGHT PLAYER LOSES! Left row wins!");
+          buzzerFalseStart();
           break;
         }
 
@@ -424,6 +529,7 @@ void loop() {
         currentState = BLACKOUT;
         stateStartMs = now;
         allLedsOff();
+        buzzerGoSignal();  // Lights out GO signal sound
         // Reset button press tracking for the game
         leftButtonPressedInGame = false;
         rightButtonPressedInGame = false;

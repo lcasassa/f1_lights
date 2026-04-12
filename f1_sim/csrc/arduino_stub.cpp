@@ -47,6 +47,9 @@ unsigned long millis() {
 void delay(unsigned long) { /* no-op */ }
 void delayMicroseconds(unsigned int) { /* no-op */ }
 
+void tone(uint8_t, unsigned int, unsigned long) { /* no-op in sim */ }
+void noTone(uint8_t) { /* no-op in sim */ }
+
 void randomSeed(unsigned long seed) {
     srand(static_cast<unsigned int>(seed));
 }
