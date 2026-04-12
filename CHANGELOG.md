@@ -5,6 +5,18 @@ Written for anyone following the project — no code knowledge required.
 
 ---
 
+## 2026-04-12
+
+- **Buzzer / sound effects** — Added a Grove Passive Buzzer v1.1 on pin 6 (PWM). Plays an F1 engine-startup sound on power-on, a 660 Hz beep each time a light column turns on, a 1200 Hz GO signal at lights-out, a low 200 Hz buzz on false starts, and a rising three-tone winner chirp.
+- **Pin remapping** — Rewired for a larger board layout, freeing pin 6 for the buzzer. New pin map: 4, 11, 12, A0, A1 (top row) / 5, 10, 9, 8, 7 (bottom row). Button pins swapped to left = 2, right = 3.
+- **Web buzzer audio** — Tone playback in the browser via Web Audio, including the full engine-startup sequence scheduled from the C++ tone log.
+- **Web pin-map sync** — Updated the WASM web simulator to match the new hardware pin mapping.
+- **GitHub Pages deployment** — Added a CI/CD workflow (`.github/workflows/deploy-pages.yml`) that builds the WASM module and deploys the web app automatically on push to `main`.
+- **MIT license** — Added `LICENSE` file and a footer with license/copyright links in the web app.
+- **README rewrite** — Rewrote the README from scratch to match the actual codebase. Corrected project title, file listing, Make targets, wiring table, and simulation instructions. Added sections for the web simulator, desktop simulation, and hardware test mode.
+
+---
+
 ## 2026-03-15
 
 - **Winner display guard enforced** — Pressing buttons to signal restart readiness no longer bypasses the 200 ms minimum winner display. The winner result is always shown for at least 200 ms before the next sequence can begin.
