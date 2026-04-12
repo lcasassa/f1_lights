@@ -256,19 +256,13 @@ def test_tie_both_buttons_pressed_simultaneously(sim: F1Sim):
     sim.advance_millis(15)
     sim.loop()
 
-    # On a blink-on phase, both rows should be on
-    # Align to a known blink-on phase (millis / 250 is even)
-    current = sim.get_millis()
-    phase = (current // 250) % 2
-    if phase != 0:
-        # Advance to next even phase
-        sim.advance_millis(250 - (current % 250))
-        sim.loop()
-
+    # The blocking winner melody just played; winnerDeclaredMs was reset to
+    # millis() *after* the melody.  Elapsed time since winnerDeclaredMs is
+    # only ~15 ms, so we are firmly in the first blink-on phase (< 250 ms).
     assert sim.top_row() == [True, True, True, True, True]
     assert sim.bottom_row() == [True, True, True, True, True]
 
-    # On a blink-off phase, both rows should be off
+    # Advance exactly one blink interval (250 ms) to reach the blink-off phase
     sim.advance_millis(250)
     sim.loop()
 

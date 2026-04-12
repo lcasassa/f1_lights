@@ -96,8 +96,9 @@ function setTone(freq) {
 
 /**
  * Schedule a pre-recorded tone log with Web Audio.
- * Each entry is {ms, freq}. We create oscillator segments so the startup
- * sound plays back in real-time exactly as it would on the hardware.
+ * Each entry is {ms, freq}. Uses a single oscillator with frequency
+ * automation and a dedicated gain node for mute/unmute, so there are
+ * no click artefacts between notes.
  * Returns the total duration in seconds.
  */
 function scheduleToneLog(log) {
@@ -106,26 +107,37 @@ function scheduleToneLog(log) {
 
   const baseTime = audioCtx.currentTime
   const originMs = log[0].ms
+  const lastMs = log[log.length - 1].ms
+  const totalSec = (lastMs - originMs) / 1000
+
+  // Dedicated gain node for this scheduled sequence (mute/unmute)
+  const seqGain = audioCtx.createGain()
+  seqGain.gain.setValueAtTime(0, baseTime) // start silent
+  seqGain.connect(gainNode)
+
+  // Single oscillator for the whole sequence
+  const osc = audioCtx.createOscillator()
+  osc.type = 'square'
+  osc.frequency.setValueAtTime(200, baseTime) // arbitrary initial freq
+  osc.connect(seqGain)
+  osc.start(baseTime)
+  osc.stop(baseTime + totalSec + 0.05) // small tail to avoid cutting last note
 
   for (let i = 0; i < log.length; i++) {
     const { ms, freq } = log[i]
-    // Determine when the next event starts (or end of this one)
-    const nextMs = (i + 1 < log.length) ? log[i + 1].ms : ms
-    const startSec = (ms - originMs) / 1000
-    const endSec = (nextMs - originMs) / 1000
+    const timeSec = baseTime + (ms - originMs) / 1000
 
-    if (freq === 0 || endSec <= startSec) continue
-
-    const osc = audioCtx.createOscillator()
-    osc.type = 'square'
-    osc.frequency.value = freq
-    osc.connect(gainNode)
-    osc.start(baseTime + startSec)
-    osc.stop(baseTime + endSec)
+    if (freq === 0) {
+      // Silence — mute the gain
+      seqGain.gain.setValueAtTime(0, timeSec)
+    } else {
+      // Note — set frequency and unmute
+      osc.frequency.setValueAtTime(freq, timeSec)
+      seqGain.gain.setValueAtTime(1, timeSec)
+    }
   }
 
-  const lastMs = log[log.length - 1].ms
-  return (lastMs - originMs) / 1000
+  return totalSec
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
