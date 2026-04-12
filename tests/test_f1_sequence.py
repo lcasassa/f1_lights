@@ -1,7 +1,3 @@
-    sim.loop()   # both ready -> LIGHTING_UP
-        return bottom == [False, False, False, False, False]
-        # Top row must be all-off (no LIGHTING_UP column pattern)
-        return top == [False, False, False, False, False]
 """Test the full F1 start-light game sequence via the desktop simulation."""
 
 import pytest
@@ -91,20 +87,22 @@ def test_early_start(sim: F1Sim, early_side, expected_top, expected_bottom, pena
 
 
 def _is_winner_display(sim: F1Sim, winner_row: str = "bottom") -> bool:
-    positions 2-5 of the *other* row must always be off (no column-2+
+    """Check that the sim is in a winner-display state.
+
+    Positions 2-5 of the *other* row must always be off (no column-2+
     LIGHTING_UP pattern).  Position 1 may be on due to the ready indicator.
 
     The winner row blinks (250ms on / 250ms off), so at any given tick
     either the full row is on or everything is off.  The key invariant:
+    the non-winner row's positions 2-5 (or 7-10) must be off.
+    """
+    top, bottom = sim.top_row(), sim.bottom_row()
+    if winner_row == "bottom":
         # Top row positions 2-5 must be off (pos 1 may be a ready indicator)
         return top[1:] == [False, False, False, False]
-    top, bottom = sim.top_row(), sim.bottom_row()
+    else:
         # Bottom row positions 7-10 must be off (pos 6 may be a ready indicator)
         return bottom[1:] == [False, False, False, False]
-        # Top row must be all-off (no LIGHTING_UP column pattern)
-        return top == [False, False, False, False, False]
-    else:
-        return bottom == [False, False, False, False, False]
 
 
 def test_winner_display_not_skippable_before_200ms(sim_at_winner_display: F1Sim):
@@ -340,18 +338,21 @@ def test_staggered_restart_after_winner(sim: F1Sim):
     sim.loop()
     sim.release_left()
     sim.advance_millis(15)
-    # Both buttons released -> WINNER_DISPLAY_DELAY (200ms guard)
     sim.loop()
-    # Left is now ready, right is still holding
-    sim.loop()
+    # Left is now ready; right is still held — state stays in WINNER
 
-    # Advance past the 200ms display guard; both already ready -> LIGHTING_UP
-    sim.advance_millis(201)
-    sim.loop()
-    # Right player finally releases — right is now ready too (press already seen, now released)
+    # Right player finally releases — now both buttons released -> WINNER_DISPLAY_DELAY
     sim.release_right()
     sim.advance_millis(15)
-    sim.loop()   # both ready -> LIGHTING_UP
+    sim.loop()   # both released -> WINNER_DISPLAY_DELAY
+
+    # Right press was already seen (from the winning press), now released -> right is ready too
+    sim.advance_millis(15)
+    sim.loop()
+
+    # Advance past the 200ms display guard; both ready -> LIGHTING_UP
+    sim.advance_millis(201)
+    sim.loop()
     sim.advance_millis(1)
     sim.loop()   # column 1 on
 
@@ -478,6 +479,10 @@ def test_ready_within_2s_still_works(sim: F1Sim):
 
     assert sim.led_states() == {
         1: True, 2: False, 3: False, 4: False, 5: False,
+        6: True, 7: False, 8: False, 9: False, 10: False,
+    }
+
+
 def test_ready_indicator_solid_for_ready_player(sim: F1Sim):
     """When one player signals ready (after blink ends), their first LED turns on solid."""
     sim = _drive_to_winner_wait_restart(sim)
@@ -558,5 +563,3 @@ def test_ready_indicator_off_when_no_one_ready(sim: F1Sim):
     assert sim.led_states() == {i: False for i in range(1, 11)}
 
 
-        6: True, 7: False, 8: False, 9: False, 10: False,
-    }
