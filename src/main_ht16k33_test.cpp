@@ -17,7 +17,8 @@ uint16_t winsA = 0;
 uint16_t winsB = 0;
 bool jumpA = false;
 bool jumpB = false;
-bool waitRelease = false;  // ignore buttons until both released
+bool waitReleaseA = false;  // ignore button A until released
+bool waitReleaseB = false;  // ignore button B until released
 bool readyA = false;
 bool readyB = false;
 uint8_t borderFrame = 0;
@@ -59,7 +60,7 @@ void startSequence() {
   stateTimer = millis() + 1000;
   jumpA = false;
   jumpB = false;
-  waitRelease = true;
+  waitReleaseA = true; waitReleaseB = true;
   Serial.println("\n--- New round ---");
   Serial.print("Score: A=");
   Serial.print(winsA);
@@ -68,7 +69,7 @@ void startSequence() {
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("\n=== F1 LIGHTS OUT! ===");
   Serial.println("Press any button to start.");
   Serial.println("When lights go out, press fastest!\n");
@@ -80,14 +81,86 @@ void setup() {
   display.begin();
   randomSeed(analogRead(A7));  // seed from floating analog pin
 
-  // Startup blink: all LEDs and segments on for 1s (only if a button is held)
-  if (digitalRead(BTN_A) == LOW || digitalRead(BTN_B) == LOW) {
-    display.setAllLeds(true);
-    for (uint8_t d = 1; d <= 8; d++) display.setRaw(d, 0xFF);
-    display.write();
-    delay(10000);
+  // Interactive segment debug: both buttons held at startup
+  if (digitalRead(BTN_A) == LOW && digitalRead(BTN_B) == LOW) {
+    // 8 digits × 9 steps (A,B,C,D,E,F,G,DP, all-on) = 72 total steps
+    static const char* SEG_NAMES[] = {"A","B","C","D","E","F","G","DP","ALL"};
+    static const uint8_t SEG_VALS[] = {
+      HT16K33Display::A, HT16K33Display::B, HT16K33Display::C,
+      HT16K33Display::D, HT16K33Display::E, HT16K33Display::F,
+      HT16K33Display::G, HT16K33Display::DP, 0xFF
+    };
+    constexpr uint8_t NUM_SEGS = 9;
+    constexpr uint8_t TOTAL = 8 * NUM_SEGS;  // 72
+
+    int16_t step = 0;
+    bool prevA = true, prevB = true;  // buttons currently held
+
+    auto showStep = [&]() {
+      uint8_t digit = (step / NUM_SEGS) + 1;  // 1-8
+      uint8_t seg   = step % NUM_SEGS;         // 0-8
+      uint8_t segs  = (SEG_VALS[seg] == 0xFF) ? 0xFF : SEG_VALS[seg];
+
+      // Update display: only this digit lit
+      for (uint8_t o = 1; o <= 8; o++) display.setRaw(o, 0);
+      display.setRaw(digit, segs);
+      display.write();
+
+      // Print to Serial
+      uint8_t byteIdx, bitIdx;
+      display.getSegMap(digit - 1, seg < 8 ? seg : 0, byteIdx, bitIdx);
+
+      Serial.print(F("Step "));
+      Serial.print(step);
+      Serial.print(F("  Digit "));
+      Serial.print(digit);
+      Serial.print(F("  Seg "));
+      Serial.print(SEG_NAMES[seg]);
+      if (seg < 8) {
+        Serial.print(F("  byte="));
+        Serial.print(byteIdx);
+        Serial.print(F(" bit="));
+        Serial.print(bitIdx);
+        if (byteIdx == 0xFF) Serial.print(F(" [UNAVAIL]"));
+      }
+      Serial.println();
+    };
+
+    // Wait for both buttons released first
+    while (digitalRead(BTN_A) == LOW || digitalRead(BTN_B) == LOW) {}
+    delay(50);
+
+    Serial.println(F("\n=== SEGMENT DEBUG MODE ==="));
+    Serial.println(F("BTN_A (pin 3) = next, BTN_B (pin 2) = prev"));
+    Serial.println(F("Press both to exit\n"));
+
+    showStep();
+
+    while (true) {
+      bool a = digitalRead(BTN_A) == LOW;
+      bool b = digitalRead(BTN_B) == LOW;
+
+      // Exit on both pressed
+      if (a && b) break;
+
+      // Detect rising edge (button press)
+      if (a && !prevA) {
+        step = (step + 1) % TOTAL;
+        showStep();
+      }
+      if (b && !prevB) {
+        step = (step - 1 + TOTAL) % TOTAL;
+        showStep();
+      }
+
+      prevA = a;
+      prevB = b;
+      delay(30);  // debounce
+    }
+
+    Serial.println(F("\n=== EXIT DEBUG MODE ===\n"));
     display.clear();
-    waitRelease = true;
+    waitReleaseA = true; waitReleaseB = true;
   }
   showWins();
   display.write();
@@ -98,12 +171,13 @@ void loop() {
   bool btnB = digitalRead(BTN_B) == LOW;
   unsigned long now = millis();
 
-  // After starting a round, ignore buttons until both are released
-  if (waitRelease) {
-    if (!btnA && !btnB) {
-      waitRelease = false;
-    }
+  // After starting a round, ignore each button until it's released
+  if (waitReleaseA) {
+    if (!btnA) waitReleaseA = false;
     btnA = false;
+  }
+  if (waitReleaseB) {
+    if (!btnB) waitReleaseB = false;
     btnB = false;
   }
 
@@ -180,7 +254,7 @@ void loop() {
       if (jumpA || jumpB) {
         state = JUMP_START;
         stateTimer = now;
-        waitRelease = true;
+        waitReleaseA = true; waitReleaseB = true;
         tone(BUZZER, 200, 500);
         display.setAllLeds(false);
         if (jumpA && !jumpB) {
@@ -229,7 +303,7 @@ void loop() {
       if (jumpA || jumpB) {
         state = JUMP_START;
         stateTimer = now;
-        waitRelease = true;
+        waitReleaseA = true; waitReleaseB = true;
         tone(BUZZER, 200, 500);
         display.setAllLeds(false);
         if (jumpA && !jumpB) { winsB++; display.setDashA(); display.setNumberB(winsB); for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
@@ -314,7 +388,7 @@ void loop() {
 
         state = RESULT;
         stateTimer = now;
-        waitRelease = true;
+        waitReleaseA = true; waitReleaseB = true;
       }
 
       // Timeout after 3 seconds — nobody pressed

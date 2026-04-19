@@ -60,13 +60,13 @@ upload-test: build-test
 
 monitor:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
-	@echo "Opening serial monitor on $(PORT) at 9600 baud..."
-	pio device monitor --baud 9600 --port $(PORT) --echo
+	@echo "Opening serial monitor on $(PORT) at 115200 baud..."
+	pio device monitor --baud 115200 --port $(PORT) --echo
 
 monitor-test:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
-	@echo "Opening serial monitor (TEST mode) on $(PORT) at 9600 baud..."
-	pio device monitor --baud 9600 --port $(PORT) --echo
+	@echo "Opening serial monitor (TEST mode) on $(PORT) at 115200 baud..."
+	pio device monitor --baud 115200 --port $(PORT) --echo
 
 build-ht16k33:
 	@echo "Building HT16K33 blink test firmware..."
@@ -79,8 +79,8 @@ upload-ht16k33: build-ht16k33
 
 monitor-ht16k33:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
-	@echo "Opening serial monitor (HT16K33 test) on $(PORT) at 9600 baud..."
-	pio device monitor --baud 9600 --port $(PORT) --echo
+	@echo "Opening serial monitor (HT16K33 test) on $(PORT) at 115200 baud..."
+	pio device monitor --baud 115200 --port $(PORT) --echo
 
 all: build upload
 	@echo "Done! Open another terminal to monitor:"
