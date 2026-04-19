@@ -7,7 +7,7 @@ constexpr uint8_t BTN_A = 3;
 constexpr uint8_t BTN_B = 2;
 constexpr uint8_t BUZZER = 5;
 
-enum State { IDLE, LIGHTING, WAIT_GO, RACE, RESULT, JUMP_START };
+enum State { IDLE, READY, LIGHTING, WAIT_GO, RACE, RESULT, JUMP_START };
 
 State state = IDLE;
 uint8_t litCount = 0;
@@ -18,10 +18,36 @@ uint16_t winsB = 0;
 bool jumpA = false;
 bool jumpB = false;
 bool waitRelease = false;  // ignore buttons until both released
+bool readyA = false;
+bool readyB = false;
+uint8_t borderFrame = 0;
+unsigned long borderTimer = 0;
+
+// Border animation: chase around the perimeter of all 4 digits
+// Each entry is {digit_1based, segment_mask}
+struct BorderStep { uint8_t digit; uint8_t seg; };
+const BorderStep BORDER_SEQ[] = {
+  {1, HT16K33Display::A},  // top of digit 1
+  {2, HT16K33Display::A},  // top of digit 2
+  {3, HT16K33Display::A},  // top of digit 3
+  {4, HT16K33Display::A},  // top of digit 4
+  {4, HT16K33Display::B},  // right-top of digit 4
+  {4, HT16K33Display::C},  // right-bottom of digit 4
+  {4, HT16K33Display::D},  // bottom of digit 4
+  {3, HT16K33Display::D},  // bottom of digit 3
+  {2, HT16K33Display::D},  // bottom of digit 2
+  {1, HT16K33Display::D},  // bottom of digit 1
+  {1, HT16K33Display::E},  // left-bottom of digit 1
+  {1, HT16K33Display::F},  // left-top of digit 1
+};
+constexpr uint8_t BORDER_LEN = 12;
+constexpr unsigned long BORDER_MS = 60;
 
 void showWins() {
-  display.setNumberA(winsA);
-  display.setNumberB(winsB);
+  if (winsA > 0) display.setNumberA(winsA);
+  else display.setRawA(0);
+  if (winsB > 0) display.setNumberB(winsB);
+  else display.setRawB(0);
 }
 
 void startSequence() {
@@ -30,10 +56,15 @@ void startSequence() {
   display.setAllLeds(false);
   showWins();
   display.write();
-  stateTimer = millis() + 1000;  // pause before first light
+  stateTimer = millis() + 1000;
   jumpA = false;
   jumpB = false;
-  waitRelease = true;  // don't check buttons until released
+  waitRelease = true;
+  Serial.println("\n--- New round ---");
+  Serial.print("Score: A=");
+  Serial.print(winsA);
+  Serial.print(" B=");
+  Serial.println(winsB);
 }
 
 void setup() {
@@ -48,7 +79,16 @@ void setup() {
 
   display.begin();
   randomSeed(analogRead(A7));  // seed from floating analog pin
-  display.setAllLeds(false);
+
+  // Startup blink: all LEDs and segments on for 1s (only if a button is held)
+  if (digitalRead(BTN_A) == LOW || digitalRead(BTN_B) == LOW) {
+    display.setAllLeds(true);
+    for (uint8_t d = 1; d <= 8; d++) display.setRaw(d, 0xFF);
+    display.write();
+    delay(10000);
+    display.clear();
+    waitRelease = true;
+  }
   showWins();
   display.write();
 }
@@ -70,11 +110,68 @@ void loop() {
   switch (state) {
 
     case IDLE:
-      // Any button starts the round
+      // Any button enters READY mode
       if (btnA || btnB) {
-        startSequence();
+        readyA = btnA;
+        readyB = btnB;
+        borderFrame = 0;
+        borderTimer = now;
+        state = READY;
       }
       break;
+
+    case READY: {
+      // First press from a new player
+      if (btnA && !readyA) { readyA = true; }
+      if (btnB && !readyB) { readyB = true; }
+
+      // Animate border on ready player's digits
+      if (now - borderTimer >= BORDER_MS) {
+        borderTimer = now;
+        borderFrame = (borderFrame + 1) % BORDER_LEN;
+
+        // Clear digits then draw current + tail (comet effect)
+        if (!readyA) {
+          for (uint8_t d = 1; d <= 4; d++) display.setRaw(d, 0);
+          const BorderStep &cur  = BORDER_SEQ[borderFrame];
+          const BorderStep &tail = BORDER_SEQ[(borderFrame + BORDER_LEN - 1) % BORDER_LEN];
+          display.setRaw(cur.digit, cur.seg);
+          if (tail.digit == cur.digit)
+            display.setRaw(cur.digit, cur.seg | tail.seg);
+          else
+            display.setRaw(tail.digit, tail.seg);
+        } else {
+          display.setRawA(HT16K33Display::D);
+        }
+
+        if (!readyB) {
+          for (uint8_t d = 5; d <= 8; d++) display.setRaw(d, 0);
+          const BorderStep &cur  = BORDER_SEQ[borderFrame];
+          const BorderStep &tail = BORDER_SEQ[(borderFrame + BORDER_LEN - 1) % BORDER_LEN];
+          display.setRaw(cur.digit + 4, cur.seg);
+          if (tail.digit == cur.digit)
+            display.setRaw(cur.digit + 4, cur.seg | tail.seg);
+          else
+            display.setRaw(tail.digit + 4, tail.seg);
+        } else {
+          display.setRawB(HT16K33Display::D);
+        }
+
+        display.write();
+      }
+
+      // Both ready → start the race
+      if (readyA && readyB) {
+        Serial.println("Both players ready!");
+        startSequence();
+        litCount = 1;  // first pair already lit
+        display.setLed(1, true);
+        display.setLed(6, true);
+        tone(BUZZER, 600, 50);
+        display.write();
+      }
+      break;
+    }
 
     case LIGHTING:
       // Check for jump start
@@ -84,21 +181,24 @@ void loop() {
         state = JUMP_START;
         stateTimer = now;
         waitRelease = true;
-        tone(BUZZER, 200, 500);  // harsh buzz for foul
-        // Flash all LEDs to indicate foul
-        display.setAllLeds(true);
+        tone(BUZZER, 200, 500);
+        display.setAllLeds(false);
         if (jumpA && !jumpB) {
-          winsB++;  // B wins by default
+          winsB++;
           display.setDashA();
           display.setNumberB(winsB);
+          for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
+          Serial.println("JUMP START by Player A! Player B wins.");
         } else if (jumpB && !jumpA) {
-          winsA++;  // A wins by default
+          winsA++;
           display.setNumberA(winsA);
           display.setDashB();
+          for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
+          Serial.println("JUMP START by Player B! Player A wins.");
         } else {
-          // Both jump = no winner, show dashes on both
           display.setDashA();
           display.setDashB();
+          Serial.println("JUMP START by BOTH players! No winner.");
         }
         display.write();
         break;
@@ -130,21 +230,22 @@ void loop() {
         state = JUMP_START;
         stateTimer = now;
         waitRelease = true;
-        tone(BUZZER, 200, 500);  // harsh buzz for foul
-        display.setAllLeds(true);
-        if (jumpA && !jumpB) { winsB++; display.setDashA(); display.setNumberB(winsB); }
-        else if (jumpB && !jumpA) { winsA++; display.setNumberA(winsA); display.setDashB(); }
-        else { display.setDashA(); display.setDashB(); }
+        tone(BUZZER, 200, 500);
+        display.setAllLeds(false);
+        if (jumpA && !jumpB) { winsB++; display.setDashA(); display.setNumberB(winsB); for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
+        else if (jumpB && !jumpA) { winsA++; display.setNumberA(winsA); display.setDashB(); for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true); Serial.println("JUMP START by Player B! Player A wins."); }
+        else { display.setDashA(); display.setDashB(); Serial.println("JUMP START by BOTH players! No winner."); }
         display.write();
         break;
       }
 
       if (now >= stateTimer) {
         // LIGHTS OUT — GO!
-        display.clear();  // clears entire buffer and writes
-        tone(BUZZER, 1500, 150);  // GO beep
+        display.clear();
+        tone(BUZZER, 1500, 150);
         lightsOutTime = now;
         state = RACE;
+        Serial.println("LIGHTS OUT! GO!");
       }
       break;
 
@@ -158,7 +259,7 @@ void loop() {
 
         // Wait briefly for the other player
         if (!hitA || !hitB) {
-          unsigned long deadline = now + 500;
+          unsigned long deadline = now + 100;
           while (millis() < deadline) {
             if (!hitA && digitalRead(BTN_A) == LOW) {
               hitA = true;
@@ -171,22 +272,45 @@ void loop() {
           }
         }
 
-        // Show reaction times
-        display.setNumberA(reactionA > 9999 ? 9999 : reactionA);
-        display.setNumberB(reactionB > 9999 ? 9999 : reactionB);
+        // Show reaction times (dash for non-presser)
+        if (hitA) { display.setNumberA(reactionA > 9999 ? 9999 : reactionA, true); display.setDP(1, true); }
+        else      { display.setDashA(); display.setDP(1, false); }
+        if (hitB) { display.setNumberB(reactionB > 9999 ? 9999 : reactionB, true); display.setDP(5, true); }
+        else      { display.setDashB(); display.setDP(5, false); }
 
         // Determine winner
         if (reactionA < reactionB) {
           winsA++;
           for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
+          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
+          Serial.print("Player A wins! A=");
+          Serial.print(reactionA);
+          Serial.print("ms B=");
+          Serial.print(hitB ? reactionB : 0);
+          Serial.println(hitB ? "ms" : "(no press)");
         } else if (reactionB < reactionA) {
           winsB++;
           for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
+          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
+          Serial.print("Player B wins! A=");
+          Serial.print(hitA ? reactionA : 0);
+          Serial.print(hitA ? "ms" : "(no press)");
+          Serial.print(" B=");
+          Serial.print(reactionB);
+          Serial.println("ms");
         } else {
           // Tie — flash all
           display.setAllLeds(true);
+          tone(BUZZER, 800, 200);
+          Serial.print("TIE! Both at ");
+          Serial.print(reactionA);
+          Serial.println("ms");
         }
         display.write();
+        Serial.print("Score: A=");
+        Serial.print(winsA);
+        Serial.print(" B=");
+        Serial.println(winsB);
 
         state = RESULT;
         stateTimer = now;
@@ -195,23 +319,27 @@ void loop() {
 
       // Timeout after 3 seconds — nobody pressed
       if (now - lightsOutTime > 3000) {
-        display.setNumberA(9999);
-        display.setNumberB(9999);
+        display.setDashA();
+        display.setDashB();
         display.write();
         state = RESULT;
         stateTimer = now;
+        Serial.println("TIMEOUT! Nobody pressed.");
       }
       break;
     }
 
     case JUMP_START:
     case RESULT:
-      // Show result for 5s, then back to idle showing wins
-      if (now - stateTimer > 5000) {
+      // Show result until a player presses a button — that press also counts as ready
+      if (btnA || btnB) {
         display.setAllLeds(false);
-        showWins();
-        display.write();
-        state = IDLE;
+        display.clear();
+        readyA = btnA;
+        readyB = btnB;
+        borderFrame = 0;
+        borderTimer = now;
+        state = READY;
       }
       break;
   }

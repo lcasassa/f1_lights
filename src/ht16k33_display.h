@@ -80,6 +80,27 @@ public:
   void setDashA() { for (uint8_t i = 0; i < 4; i++) setSegments(i, SEG_G); }
   void setDashB() { for (uint8_t i = 4; i < 8; i++) setSegments(i, SEG_G); }
 
+  // Set raw segment bitmask on digit 1-8
+  // Bits: 0=A, 1=B, 2=C, 3=D, 4=E, 5=F, 6=G, 7=DP
+  void setRaw(uint8_t pos, uint8_t segs) {
+    if (pos < 1 || pos > 8) return;
+    setSegments(pos - 1, segs);
+  }
+
+  // Set raw segment bitmask on digits 1-4 or 5-8
+  void setRawA(uint8_t segs) { for (uint8_t i = 0; i < 4; i++) setSegments(i, segs); }
+  void setRawB(uint8_t segs) { for (uint8_t i = 4; i < 8; i++) setSegments(i, segs); }
+
+  // Segment bit constants
+  static constexpr uint8_t A  = 0x01;
+  static constexpr uint8_t B  = 0x02;
+  static constexpr uint8_t C  = 0x04;
+  static constexpr uint8_t D  = 0x08;
+  static constexpr uint8_t E  = 0x10;
+  static constexpr uint8_t F  = 0x20;
+  static constexpr uint8_t G  = 0x40;
+  static constexpr uint8_t DP = 0x80;
+
   // ── Red LEDs (L1-L10) ──────────────────────────────────────────────────
 
   void setLed(uint8_t led, bool on) {  // led = 1..10
@@ -106,15 +127,15 @@ public:
 private:
   uint8_t buf_[16] = {};
 
-  // Segment bit flags for font encoding
-  static constexpr uint8_t SEG_A  = 0x01;
-  static constexpr uint8_t SEG_B  = 0x02;
-  static constexpr uint8_t SEG_C  = 0x04;
-  static constexpr uint8_t SEG_D  = 0x08;
-  static constexpr uint8_t SEG_E  = 0x10;
-  static constexpr uint8_t SEG_F  = 0x20;
-  static constexpr uint8_t SEG_G  = 0x40;
-  static constexpr uint8_t SEG_DP = 0x80;
+  // Segment bit flags (private aliases)
+  static constexpr uint8_t SEG_A  = A;
+  static constexpr uint8_t SEG_B  = B;
+  static constexpr uint8_t SEG_C  = C;
+  static constexpr uint8_t SEG_D  = D;
+  static constexpr uint8_t SEG_E  = E;
+  static constexpr uint8_t SEG_F  = F;
+  static constexpr uint8_t SEG_G  = G;
+  static constexpr uint8_t SEG_DP = DP;
 
   //  Standard 7-segment font:
   //     _A_
