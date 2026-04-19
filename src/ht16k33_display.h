@@ -4,21 +4,27 @@
 
 // ── HT16K33 7-Segment + LED Driver ────────────────────────────────────────
 //
-// Hardware: 8× 7-segment displays (digits 1-8) + 10 red LEDs (L1-L10)
-//           driven by a single HT16K33 at address 0x70.
+// Hardware: 2× 12-pin 4-digit 7-segment displays wired to an Adafruit
+//           HT16K33 Quad Alphanumeric backpack (0x70).
+//           10 red LEDs (L1-L10) on direct Arduino pins.
 //
-// Missing segments (no physical output available):
-//   Digit 4: entirely unwired (all segments missing)
-//   Digit 8: B, F missing  — can display: 0,1,2,3,5,7 (no 4,6,8,9)
+// Both displays share COM0-COM3.  Display A (digits 1-4) and display B
+// (digits 5-8) each use 8 ROW lines for segments A-G + DP = 16 ROWs needed.
+// The backpack only routes ROW0-ROW14 (15 lines, for 14-seg + DP).
+// ROW15 is NOT routed — solder to HT16K33 pin 25 to recover it.
 //
-// Reassigned unused outputs:
-//   idx 15 (byte 1, bit 7) → 1E
-//   idx 31 (byte 3, bit 7) → 2E
-//   idx 47 (byte 5, bit 7) → 3E
-//   idx 63 (byte 7, bit 7) → 8A
+// Because ROW15 is missing, display A's E pin shares ROW4 with display B's
+// D pin.  This means:
+//   {0,4} = 5D + 1E     {2,4} = 6D + 2E     {4,4} = 7D + 3E
+// These cannot be independently controlled → 1E, 2E, 3E marked UNAVAIL.
+// (1E lights up whenever 5D is on, etc.)
 //
-// NOTE: These reassignments require physical wiring to the LED.
-//       Until wired, those segments won't light up.
+// Digit 4 E: would need ROW15 ({7,7}) — not available.
+// Digit 8 A: would need ROW15 ({7,7}) — not available.
+//            Original position {6,2} is free (L7 moved to direct pin).
+//            Rewire 8A to {6,2} pad to recover it.
+//
+// {6,4} = 8D also ghosts 4B (hardware coupled on COM3)
 
 class HT16K33Display {
 public:
@@ -35,6 +41,11 @@ public:
     cmd(0x81);        // display on, no blink
     cmd(0xE0 | 15);   // max brightness
     clear();
+    // Initialise direct-drive LED pins
+    for (uint8_t i = 0; i < NUM_LEDS; i++) {
+      pinMode(ledPins_[i], OUTPUT);
+      digitalWrite(ledPins_[i], LOW);
+    }
   }
 
   void clear() {
@@ -73,7 +84,7 @@ public:
   // Set decimal point on digit 1-8
   void setDP(uint8_t pos, bool on) {
     if (pos < 1 || pos > 8) return;
-    setSegment(pos - 1, SEG_DP, on);
+    setSegment(pos - 1, 7, on);  // DP is segment index 7
   }
 
   // Show dash (segment G only) on digits 1-4 or 5-8
@@ -91,6 +102,12 @@ public:
   void setRawA(uint8_t segs) { for (uint8_t i = 0; i < 4; i++) setSegments(i, segs); }
   void setRawB(uint8_t segs) { for (uint8_t i = 4; i < 8; i++) setSegments(i, segs); }
 
+  // Query segment mapping: digit 0-7, seg 0-7 → byteIdx, bitIdx (0xFF = unavail)
+  void getSegMap(uint8_t digit, uint8_t seg, uint8_t &byteIdx, uint8_t &bitIdx) const {
+    byteIdx = segMap_[digit][seg][0];
+    bitIdx  = segMap_[digit][seg][1];
+  }
+
   // Segment bit constants
   static constexpr uint8_t A  = 0x01;
   static constexpr uint8_t B  = 0x02;
@@ -101,14 +118,31 @@ public:
   static constexpr uint8_t G  = 0x40;
   static constexpr uint8_t DP = 0x80;
 
-  // ── Red LEDs (L1-L10) ──────────────────────────────────────────────────
+  //  Standard 7-segment font:
+  //     _A_
+  //   |F   |B
+  //     _G_
+  //   |E   |C
+  //     _D_   .DP
+  //
+  static constexpr uint8_t FONT[10] = {
+    A | B | C | D | E | F,         // 0
+    B | C,                          // 1
+    A | B | D | E | G,              // 2
+    A | B | C | D | G,              // 3
+    B | C | F | G,                  // 4
+    A | C | D | F | G,              // 5
+    A | C | D | E | F | G,          // 6
+    A | B | C,                      // 7
+    A | B | C | D | E | F | G,      // 8
+    A | B | C | D | F | G,          // 9
+  };
+
+  // ── Red LEDs (L1-L10) — direct Arduino pins ───────────────────────────
 
   void setLed(uint8_t led, bool on) {  // led = 1..10
     if (led < 1 || led > NUM_LEDS) return;
-    uint8_t byte_idx = ledMap_[led - 1][0];
-    uint8_t bit_idx  = ledMap_[led - 1][1];
-    if (on) buf_[byte_idx] |=  (1 << bit_idx);
-    else    buf_[byte_idx] &= ~(1 << bit_idx);
+    digitalWrite(ledPins_[led - 1], on ? HIGH : LOW);
   }
 
   void setAllLeds(bool on) {
@@ -127,6 +161,22 @@ public:
 private:
   uint8_t buf_[16] = {};
 
+  // ── Direct-drive LED pin mapping (L1..L10) ─────────────────────────────
+  static constexpr uint8_t ledPins_[10] = {
+
+    6,  // L1
+    8,  // L2
+    A1, // L3
+    11, // L4
+    10, // L5
+    4,  // L6
+    7,  // L7
+    9,  // L8
+    A0, // L9
+    12, // L10
+
+  };
+
   // Segment bit flags (private aliases)
   static constexpr uint8_t SEG_A  = A;
   static constexpr uint8_t SEG_B  = B;
@@ -136,26 +186,6 @@ private:
   static constexpr uint8_t SEG_F  = F;
   static constexpr uint8_t SEG_G  = G;
   static constexpr uint8_t SEG_DP = DP;
-
-  //  Standard 7-segment font:
-  //     _A_
-  //   |F   |B
-  //     _G_
-  //   |E   |C
-  //     _D_   .DP
-  //
-  static constexpr uint8_t FONT[10] = {
-    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F,         // 0
-    SEG_B | SEG_C,                                           // 1
-    SEG_A | SEG_B | SEG_D | SEG_E | SEG_G,                  // 2
-    SEG_A | SEG_B | SEG_C | SEG_D | SEG_G,                  // 3
-    SEG_B | SEG_C | SEG_F | SEG_G,                           // 4
-    SEG_A | SEG_C | SEG_D | SEG_F | SEG_G,                  // 5
-    SEG_A | SEG_C | SEG_D | SEG_E | SEG_F | SEG_G,          // 6
-    SEG_A | SEG_B | SEG_C,                                   // 7
-    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F | SEG_G,  // 8
-    SEG_A | SEG_B | SEG_C | SEG_D | SEG_F | SEG_G,          // 9
-  };
 
   // ── Per-digit segment → (byte, bit) mapping ────────────────────────────
   // Indexed as segMap_[digit_0based][segment] = {byte, bit}
@@ -171,7 +201,7 @@ private:
       {1, 1},         // B
       {0, 6},         // C
       {0, 1},         // D
-      {1, 7},         // E  ← reassigned from unused idx 15
+      {UNAVAIL, 0},   // E  — shares {0,4} with 5D, can't control independently
       {1, 0},         // F
       {1, 2},         // G
       {0, 0},         // DP
@@ -182,7 +212,7 @@ private:
       {3, 1},         // B
       {2, 6},         // C
       {2, 1},         // D
-      {3, 7},         // E  ← reassigned from unused idx 31
+      {UNAVAIL, 0},   // E  — shares {2,4} with 6D, can't control independently
       {3, 0},         // F
       {3, 2},         // G
       {2, 0},         // DP
@@ -193,28 +223,28 @@ private:
       {5, 1},         // B
       {4, 6},         // C
       {4, 1},         // D
-      {5, 7},         // E  ← reassigned from unused idx 47
+      {UNAVAIL, 0},   // E  — shares {4,4} with 7D, can't control independently
       {5, 0},         // F
       {5, 2},         // G
       {4, 0},         // DP
     },
-    // Digit 4 — ENTIRELY MISSING (no wiring)
+    // Digit 4 — predicted from group A pattern on COM3 (bytes 6-7)
     {
-      {UNAVAIL, 0},   // A
-      {UNAVAIL, 0},   // B
-      {UNAVAIL, 0},   // C
-      {UNAVAIL, 0},   // D
-      {UNAVAIL, 0},   // E
-      {UNAVAIL, 0},   // F
-      {UNAVAIL, 0},   // G
-      {UNAVAIL, 0},   // DP
+      {6, 5},         // A
+      {7, 1},         // B  — note: {6,4} (8D) also ghosts 4B
+      {6, 6},         // C
+      {6, 1},         // D
+      {UNAVAIL, 0},   // E  — {7,7} doesn't work (8A rewire failed)
+      {7, 0},         // F
+      {7, 2},         // G
+      {6, 0},         // DP
     },
     // Digit 5 (label "5") — complete
     {
       {0, 2},         // A
       {0, 3},         // B
       {1, 5},         // C
-      {0, 4},         // D
+      {0, 4},         // D  — also lights 1E (hardware coupled)
       {1, 3},         // E
       {1, 6},         // F
       {0, 7},         // G
@@ -225,7 +255,7 @@ private:
       {2, 2},         // A
       {2, 3},         // B
       {3, 5},         // C
-      {2, 4},         // D
+      {2, 4},         // D  — also lights 2E (hardware coupled)
       {3, 3},         // E
       {3, 6},         // F
       {2, 7},         // G
@@ -236,39 +266,26 @@ private:
       {4, 2},         // A
       {4, 3},         // B
       {5, 5},         // C
-      {4, 4},         // D
+      {4, 4},         // D  — also lights 3E (hardware coupled)
       {5, 3},         // E
       {5, 6},         // F
       {4, 7},         // G
       {5, 4},         // DP
     },
-    // Digit 8 (label "8") — missing B, F
+    // Digit 8 — A unavailable (rewire failed)
     {
-      {7, 7},         // A  ← reassigned from unused idx 63
-      {UNAVAIL, 0},   // B  — unavailable
+      {UNAVAIL, 0},   // A  — {7,7} doesn't work
+      {6, 3},         // B
       {7, 5},         // C
-      {6, 4},         // D
+      {6, 4},         // D  — also ghosts 4B (hardware coupled)
       {7, 3},         // E
-      {UNAVAIL, 0},   // F  — unavailable
+      {7, 6},         // F
       {6, 7},         // G
       {7, 4},         // DP
     },
   };
 
-  // ── Red LED → (byte, bit) mapping ──────────────────────────────────────
-  // L1..L10 indexed 0..9
-  static constexpr uint8_t ledMap_[10][2] = {
-    {6, 3},  // L1  (was L6)
-    {7, 6},  // L2  (was L7)
-    {6, 1},  // L3  (was L8)
-    {6, 5},  // L4  (was L9)
-    {7, 0},  // L5  (was L10)
-    {6, 0},  // L6  (was L1)
-    {6, 2},  // L7  (was L2)
-    {6, 6},  // L8  (was L3)
-    {7, 2},  // L9  (was L4)
-    {7, 1},  // L10 (was L5)
-  };
+  // ── Red LED → (byte, bit) — REMOVED, LEDs now on direct pins ──────────
 
   void cmd(uint8_t c) {
     Wire.beginTransmission(I2C_ADDR);
@@ -320,5 +337,4 @@ private:
 // Out-of-class definitions required by AVR C++11 linker
 constexpr uint8_t HT16K33Display::FONT[10];
 constexpr uint8_t HT16K33Display::segMap_[8][8][2];
-constexpr uint8_t HT16K33Display::ledMap_[10][2];
-
+constexpr uint8_t HT16K33Display::ledPins_[10];

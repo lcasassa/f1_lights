@@ -416,7 +416,7 @@ void updateButtonStates() {
 void resetRestartReadiness();
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("\n╔════════════════════════════════════════╗");
   Serial.println("║     F1 START LIGHTS SEQUENCE (10 LED)  ║");
   Serial.println("║  Row 1 (POS 1-5):    [1][2][3][4][5]  ║");
