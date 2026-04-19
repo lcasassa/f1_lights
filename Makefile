@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev
+.PHONY: help build upload monitor clean build-test upload-test monitor-test build-ht16k33 upload-ht16k33 monitor-ht16k33 sim sim-clean test display wasm web web-dev
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -20,6 +20,11 @@ help:
 	@echo "  make build-test        - Compile hardware test firmware"
 	@echo "  make upload-test       - Build and upload test firmware (auto-discovers port)"
 	@echo "  make monitor-test      - Open serial monitor for test mode"
+	@echo ""
+	@echo "HT16K33 BLINK TEST:"
+	@echo "  make build-ht16k33    - Compile HT16K33 blink test firmware"
+	@echo "  make upload-ht16k33   - Build and upload HT16K33 blink test"
+	@echo "  make monitor-ht16k33  - Open serial monitor for HT16K33 test"
 	@echo ""
 	@echo "DESKTOP SIMULATION (Python):"
 	@echo "  make sim               - Build shared library for Python simulation"
@@ -56,12 +61,26 @@ upload-test: build-test
 monitor:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
 	@echo "Opening serial monitor on $(PORT) at 9600 baud..."
-	pio device monitor --baud 9600 --port $(PORT)
+	pio device monitor --baud 9600 --port $(PORT) --echo
 
 monitor-test:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
 	@echo "Opening serial monitor (TEST mode) on $(PORT) at 9600 baud..."
-	pio device monitor --baud 9600 --port $(PORT)
+	pio device monitor --baud 9600 --port $(PORT) --echo
+
+build-ht16k33:
+	@echo "Building HT16K33 blink test firmware..."
+	pio run -e ht16k33-test
+
+upload-ht16k33: build-ht16k33
+	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
+	@echo "Uploading HT16K33 blink test to $(PORT)..."
+	pio run -e ht16k33-test -t upload --upload-port $(PORT)
+
+monitor-ht16k33:
+	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
+	@echo "Opening serial monitor (HT16K33 test) on $(PORT) at 9600 baud..."
+	pio device monitor --baud 9600 --port $(PORT) --echo
 
 all: build upload
 	@echo "Done! Open another terminal to monitor:"
