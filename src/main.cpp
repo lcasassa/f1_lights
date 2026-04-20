@@ -273,7 +273,7 @@ void loop() {
         litCount = 1;  // first pair already lit
         display.setLed(1, true);
         display.setLed(6, true);
-        tone(BUZZER, 600, 50);
+        tone(BUZZER, 1000, 200);  // F1-style beep: 1kHz, 200ms
         display.write();
       }
       break;
@@ -312,7 +312,7 @@ void loop() {
         display.setLed(litCount, true);
         display.setLed(litCount + 5, true);
         display.write();
-        tone(BUZZER, 600, 50);  // short beep per pair
+        tone(BUZZER, 1000, 200);  // F1-style beep: 1kHz, 200ms
 
         if (litCount >= 5) {
           // All 5 pairs lit — wait random 1-4s then go dark
@@ -345,7 +345,7 @@ void loop() {
         // LIGHTS OUT — GO!
         display.setAllLeds(false);
         display.clear();
-        tone(BUZZER, 1500, 150);
+        noTone(BUZZER);  // silence — in F1, lights out is purely visual
         lightsOutTime = now;
         state = RACE;
         Serial.println("LIGHTS OUT! GO!");
