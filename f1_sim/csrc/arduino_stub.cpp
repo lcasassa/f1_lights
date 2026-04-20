@@ -43,9 +43,6 @@ void digitalWrite(uint8_t pin, uint8_t val) {
 }
 
 int digitalRead(uint8_t pin) {
-    // Advance clock by 1ms per read to prevent busy-wait loops from hanging
-    // (on real hardware, millis() advances via hardware timer during busy-waits).
-    sim_millis_value++;
     if (pin < SIM_MAX_PINS) {
         return sim_pin_input[pin];
     }
@@ -57,7 +54,24 @@ int analogRead(uint8_t pin) {
     return rand() % 1024;
 }
 
+// Track repeated millis() calls at the same value to detect busy-wait loops.
+// On real hardware millis() advances via a hardware timer; in the sim we must
+// mimic that by auto-advancing after many consecutive reads at the same value.
+static unsigned long sim_millis_last_returned = 0;
+static int sim_millis_repeat_count = 0;
+constexpr int SIM_MILLIS_BUSY_WAIT_THRESHOLD = 4;
+
 unsigned long millis() {
+    if (sim_millis_value == sim_millis_last_returned) {
+        sim_millis_repeat_count++;
+        if (sim_millis_repeat_count >= SIM_MILLIS_BUSY_WAIT_THRESHOLD) {
+            sim_millis_value++;
+            sim_millis_repeat_count = 0;
+        }
+    } else {
+        sim_millis_last_returned = sim_millis_value;
+        sim_millis_repeat_count = 0;
+    }
     return sim_millis_value;
 }
 
