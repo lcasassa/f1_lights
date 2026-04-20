@@ -1,25 +1,28 @@
 # F1 Start Lights
 
 Two-player reaction-time game built on an **Arduino Pro Mini 5V 16MHz**.
-Ten LEDs (two rows of five) reproduce the Formula 1 start-light sequence; a
-passive buzzer adds engine-startup and race sounds.
+Ten LEDs (two rows of five) and two 4-digit 7-segment displays (driven by an
+HT16K33 I2C backpack) reproduce the Formula 1 start-light sequence; a passive
+buzzer adds engine-startup and race sounds.  Reaction times are shown on the
+seven-segment displays after each round.
 
 ## How to play
 
-1. Both players press their buttons simultaneously to start a round.
-2. Five columns of LEDs light up left-to-right at 1-second intervals (with a beep for each).
-3. All lights stay on for a random 1–3 second pause.
-4. **Lights out — GO!** First player to press wins; their row blinks.
-5. Pressing *before* lights-out is a **false start** — the other player wins automatically and a penalty LED is shown.
-6. If both press at the same instant it's a **tie** and both rows blink.
-7. To restart, each player must press-and-release their button (readiness expires after 2 s if the other player doesn't respond).
+1. Press any button to enter READY mode (border animation on 7-segment display).
+2. Once both players are ready, five pairs of LEDs light up at 800 ms intervals (with a beep for each).
+3. After a random 1–4 second pause, **lights out — GO!**
+4. First player to press wins; their LED row lights up and reaction times are displayed.
+5. Pressing *before* lights-out is a **jump start** — the other player wins automatically with dashes shown.
+6. If both press within 100 ms of each other it's a **tie** and all LEDs light up.
+7. After a result, press any button to return to READY for the next round.
 
 ## Project structure
 
 | Path | Description |
 |---|---|
 | `platformio.ini` | PlatformIO board/framework config (default + test environments) |
-| `src/main.cpp` | F1 start-sequence game firmware |
+| `src/main.cpp` | F1 start-sequence game firmware (HT16K33 + direct LEDs) |
+| `src/ht16k33_display.h` | HT16K33 7-segment display + LED driver class |
 | `src/main_test.cpp` | Hardware test firmware (sequential LED sweep) |
 | `f1_sim/` | Python simulation package (ctypes wrapper + pygame display) |
 | `f1_sim/csrc/` | C++ stubs and bridge for desktop/WASM simulation |
@@ -84,7 +87,7 @@ make sim
 # Run the pytest suite
 make test
 
-# Launch the pygame visual display (hold 1 = left player, 2 = right player)
+# Launch the pygame visual display (hold 1 = player B, 2 = player A)
 make display
 ```
 
@@ -105,24 +108,27 @@ make web
 
 ## Wiring
 
-**LEDs (10):** Two rows of five, mapped to Arduino pins via `PIN_MAP` in
-`src/main.cpp`:
+**LEDs (10):** Two rows of five, directly driven from Arduino pins via
+`ht16k33_display.h`:
 
-| Position | Row | Arduino Pin |
-|----------|-----|-------------|
-| POS-1 | Top, leftmost | 4 |
-| POS-2 | Top | 11 |
-| POS-3 | Top | 12 |
-| POS-4 | Top | A0 |
-| POS-5 | Top, rightmost | A1 |
-| POS-6 | Bottom, leftmost | 5 |
-| POS-7 | Bottom | 10 |
-| POS-8 | Bottom | 9 |
-| POS-9 | Bottom | 8 |
-| POS-10 | Bottom, rightmost | 7 |
+| LED | Row | Arduino Pin |
+|-----|-----|-------------|
+| L1 | Top, leftmost | 6 |
+| L2 | Top | 8 |
+| L3 | Top | A1 |
+| L4 | Top | 11 |
+| L5 | Top, rightmost | 10 |
+| L6 | Bottom, leftmost | 4 |
+| L7 | Bottom | 7 |
+| L8 | Bottom | 9 |
+| L9 | Bottom | A0 |
+| L10 | Bottom, rightmost | 12 |
 
-**Buzzer:** Grove Passive Buzzer v1.1 on **pin 6** (PWM).
+**7-Segment Displays:** 2× 4-digit displays on HT16K33 I2C backpack at
+address **0x70** (SDA = A4, SCL = A5).
+
+**Buzzer:** Grove Passive Buzzer v1.1 on **pin 5** (PWM).
 
 **Buttons:**
-- **Pin 2** — Left player (internal pull-up; connect to GND)
-- **Pin 3** — Right player (internal pull-up; connect to GND)
+- **Pin 3** (BTN_A) — Player A (internal pull-up; connect to GND)
+- **Pin 2** (BTN_B) — Player B (internal pull-up; connect to GND)

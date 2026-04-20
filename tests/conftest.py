@@ -20,49 +20,39 @@ def sim():
     return s
 
 
-@pytest.fixture()
-def sim_at_winner_display(sim: F1Sim) -> F1Sim:
-    """Drive the sim from IDLE to WINNER_DISPLAY_DELAY with right player winning."""
-    # Start sequence: press both -> release -> both ready -> LIGHTING_UP
+def _drive_to_race(sim: F1Sim) -> F1Sim:
+    """Drive sim from IDLE through to RACE (lights out).
+
+    Uses generous timing to ensure we get past the random WAIT_GO delay,
+    but stops as soon as all LEDs turn off (RACE state entered).
+    """
     sim.advance_millis(100)
-    sim.press_both()
-    sim.advance_millis(15)
+    # Press A to enter READY
+    sim.press_a()
+    sim.advance_millis(25)
     sim.loop()
+    # Press B to make both ready → starts LIGHTING
+    sim.press_b()
+    sim.advance_millis(25)
+    sim.loop()
+    # Release both (waitRelease clears)
     sim.release_both()
-    sim.advance_millis(15)
-    sim.loop()
-    sim.advance_millis(1)
+    sim.advance_millis(25)
     sim.loop()
 
-    # Tick through LIGHTING_UP: 5 columns × 1000ms each
-    for _ in range(5):
-        sim.advance_millis(1000)
+    # Advance through LIGHTING + WAIT_GO until lights go out.
+    # We know at least 1 LED is on (L1+L6 after start), so wait for all off.
+    all_off = {i: False for i in range(1, 11)}
+    for _ in range(100):
+        sim.advance_millis(100)
         sim.loop()
+        if sim.led_states() == all_off:
+            return sim
 
-    # Tick into ALL_ON
-    sim.advance_millis(1000)
-    sim.loop()
-
-    # Advance past max random delay (3000ms) -> BLACKOUT
-    sim.advance_millis(3001)
-    sim.loop()
-
-    # Right player wins
-    sim.advance_millis(15)
-    sim.press_right()
-    sim.loop()
-    sim.advance_millis(15)
-    sim.loop()
-
-    # Wait 250ms before WINNER state starts listening for button releases
-    sim.advance_millis(250)
-    sim.loop()
-
-    # Release right button -> WINNER sees both released -> WINNER_DISPLAY_DELAY
-    sim.release_right()
-    sim.advance_millis(15)
-    sim.loop()
-
-    return sim
+    raise AssertionError("Failed to reach RACE state (lights out) after 10 seconds")
 
 
+@pytest.fixture()
+def sim_at_race(sim: F1Sim) -> F1Sim:
+    """Drive the sim from IDLE through to RACE (lights out, waiting for button press)."""
+    return _drive_to_race(sim)

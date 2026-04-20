@@ -2,8 +2,8 @@
 F1 Start Lights — pygame display.
 
 Controls:
-  Hold 1  — Left button  (top row player)
-  Hold 2  — Right button (bottom row player)
+  Hold 1  — Player B (bottom row)
+  Hold 2  — Player A (top row)
   Escape  — Quit
 
 The Arduino loop() is called every 20 ms of real time.
