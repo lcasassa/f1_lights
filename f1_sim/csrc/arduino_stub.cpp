@@ -1,10 +1,17 @@
 #include "Arduino.h"
+#include "Wire.h"
 #include <cstdlib>
 
 // ── Global simulated state ──────────────────────────────────────────────────
 uint8_t sim_pin_values[SIM_MAX_PINS] = {};  // last digitalWrite value
 uint8_t sim_pin_modes[SIM_MAX_PINS]  = {};  // configured pin mode
 uint8_t sim_pin_input[SIM_MAX_PINS]  = {};  // what digitalRead returns
+
+// ── I2C / Wire stub globals ─────────────────────────────────────────────────
+TwoWire Wire;
+uint8_t sim_i2c_buf[SIM_I2C_BUF_SIZE] = {};
+uint8_t sim_i2c_buf_len = 0;
+uint8_t sim_i2c_display_buf[16] = {};
 
 unsigned long sim_millis_value = 0;
 
@@ -36,6 +43,9 @@ void digitalWrite(uint8_t pin, uint8_t val) {
 }
 
 int digitalRead(uint8_t pin) {
+    // Advance clock by 1ms per read to prevent busy-wait loops from hanging
+    // (on real hardware, millis() advances via hardware timer during busy-waits).
+    sim_millis_value++;
     if (pin < SIM_MAX_PINS) {
         return sim_pin_input[pin];
     }

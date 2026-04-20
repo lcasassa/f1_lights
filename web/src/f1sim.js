@@ -3,14 +3,56 @@
  * Mirrors the Python F1Sim class API.
  */
 
-// Pin mapping — must match main.cpp
+// Pin mapping — must match ht16k33_display.h ledPins_[]
 const A0 = 14
 const A1 = 15
-const PIN_MAP = [4, 11, 12, A0, A1, 5, 10, 9, 8, 7] // POS-1..POS-10
-const BUTTON_LEFT_PIN = 2
-const BUTTON_RIGHT_PIN = 3
+const PIN_MAP = [6, 8, A1, 11, 10, 4, 7, 9, A0, 12] // L1..L10
+const BUTTON_LEFT_PIN = 2   // BTN_B in main.cpp
+const BUTTON_RIGHT_PIN = 3  // BTN_A in main.cpp
 const HIGH = 1
 const LOW = 0
+
+// ── HT16K33 segment map (from ht16k33_display.h) ───────────────────────────
+// segMap[digit][segment] = [byteIdx, bitIdx]   (0xFF = unavailable)
+const UNAVAIL = 0xFF
+const SEG_MAP = [
+  // Digit 1
+  [[0,5],[1,1],[0,6],[0,1],[0,0],[1,0],[1,2],[UNAVAIL,0]],
+  // Digit 2
+  [[2,5],[3,1],[2,6],[2,1],[2,0],[3,0],[3,2],[UNAVAIL,0]],
+  // Digit 3
+  [[4,5],[5,1],[4,6],[4,1],[4,0],[5,0],[5,2],[UNAVAIL,0]],
+  // Digit 4
+  [[6,5],[7,1],[6,6],[6,1],[6,0],[7,0],[7,2],[UNAVAIL,0]],
+  // Digit 5
+  [[0,2],[0,3],[1,5],[0,4],[1,3],[1,6],[0,7],[1,4]],
+  // Digit 6
+  [[2,2],[2,3],[3,5],[2,4],[3,3],[3,6],[2,7],[3,4]],
+  // Digit 7
+  [[4,2],[4,3],[5,5],[4,4],[5,3],[5,6],[4,7],[5,4]],
+  // Digit 8
+  [[6,2],[6,3],[7,5],[6,4],[7,3],[7,6],[6,7],[7,4]],
+]
+
+/**
+ * Decode 16-byte I2C display buffer into per-digit segment bitmasks.
+ * Returns array of 8 numbers, each with bits: A=0, B=1, C=2, D=3, E=4, F=5, G=6, DP=7
+ */
+function decodeDisplayBuf(buf) {
+  const digits = []
+  for (let d = 0; d < 8; d++) {
+    let segs = 0
+    for (let s = 0; s < 8; s++) {
+      const [byteIdx, bitIdx] = SEG_MAP[d][s]
+      if (byteIdx === UNAVAIL) continue
+      if (buf[byteIdx] & (1 << bitIdx)) {
+        segs |= (1 << s)
+      }
+    }
+    digits.push(segs)
+  }
+  return digits
+}
 
 export function createSim() {
   const mod = window.__f1sim
@@ -30,6 +72,7 @@ export function createSim() {
   const simGetToneLogMs = mod.cwrap('sim_get_tone_log_ms', 'number', ['number'])
   const simGetToneLogFreq = mod.cwrap('sim_get_tone_log_freq', 'number', ['number'])
   const simToneLogClear = mod.cwrap('sim_tone_log_clear', null, [])
+  const simGetDisplayByte = mod.cwrap('sim_get_display_byte', 'number', ['number'])
 
   return {
     setup: () => simSetup(),
@@ -73,6 +116,17 @@ export function createSim() {
 
     bottomRow() {
       return [6, 7, 8, 9, 10].map((p) => this.ledState(p))
+    },
+
+    /**
+     * Read the 16-byte HT16K33 display buffer and decode it into
+     * an array of 8 segment bitmasks (one per digit).
+     * Bits: A=0, B=1, C=2, D=3, E=4, F=5, G=6, DP=7
+     */
+    displayDigits() {
+      const buf = new Uint8Array(16)
+      for (let i = 0; i < 16; i++) buf[i] = simGetDisplayByte(i)
+      return decodeDisplayBuf(buf)
     },
 
     // Button helpers

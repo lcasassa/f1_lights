@@ -5,6 +5,9 @@
 #include <cstdint>
 #include <cstddef>
 
+// ── Flash string macro (no-op on desktop) ───────────────────────────────────
+#define F(x) (x)
+
 // ── Pin mode / digital constants ────────────────────────────────────────────
 constexpr uint8_t LOW  = 0;
 constexpr uint8_t HIGH = 1;
@@ -19,6 +22,8 @@ constexpr uint8_t A2 = 16;
 constexpr uint8_t A3 = 17;
 constexpr uint8_t A4 = 18;
 constexpr uint8_t A5 = 19;
+constexpr uint8_t A6 = 20;
+constexpr uint8_t A7 = 21;
 
 // ── Maximum number of simulated pins ────────────────────────────────────────
 constexpr uint8_t SIM_MAX_PINS = 32;

@@ -4,6 +4,7 @@
 //   make sim
 //
 #include "Arduino.h"
+#include "Wire.h"
 
 // ── The sketch provides these two symbols (in main.cpp) ─────────────────────
 void setup();
@@ -78,6 +79,20 @@ void sim_reset() {
     sim_tone_pin    = 0;
     sim_tone_end_ms = 0;
     sim_tone_log_count = 0;
+    memset(sim_i2c_buf, 0, sizeof(sim_i2c_buf));
+    sim_i2c_buf_len = 0;
+    memset(sim_i2c_display_buf, 0, sizeof(sim_i2c_display_buf));
+}
+
+// ── I2C / HT16K33 display buffer inspection ────────────────────────────────
+void sim_get_display_buf(uint8_t* out, uint8_t count) {
+    for (uint8_t i = 0; i < count && i < 16; i++) {
+        out[i] = sim_i2c_display_buf[i];
+    }
+}
+
+uint8_t sim_get_display_byte(uint8_t index) {
+    return (index < 16) ? sim_i2c_display_buf[index] : 0;
 }
 
 }  // extern "C"

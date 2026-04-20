@@ -1,27 +1,33 @@
 <template>
   <div class="app">
     <h1 class="title">F1 START LIGHTS</h1>
-    <div
-      class="key"
-      :class="{ active: leftPressed }"
-      @mousedown.prevent="onBtnDown('left')"
-      @mouseup.prevent="onBtnUp('left')"
-      @mouseleave="onBtnUp('left')"
-      @touchstart.prevent="onBtnDown('left')"
-      @touchend.prevent="onBtnUp('left')"
-      @touchcancel="onBtnUp('left')"
-    >[1] Player 1</div>
+    <div class="player-row">
+      <div
+        class="key"
+        :class="{ active: leftPressed }"
+        @mousedown.prevent="onBtnDown('left')"
+        @mouseup.prevent="onBtnUp('left')"
+        @mouseleave="onBtnUp('left')"
+        @touchstart.prevent="onBtnDown('left')"
+        @touchend.prevent="onBtnUp('left')"
+        @touchcancel="onBtnUp('left')"
+      >[1] Player B</div>
+      <SevenSegDisplay :digits="segDigitsB" />
+    </div>
     <F1Board :leds="leds" />
-    <div
-      class="key"
-      :class="{ active: rightPressed }"
-      @mousedown.prevent="onBtnDown('right')"
-      @mouseup.prevent="onBtnUp('right')"
-      @mouseleave="onBtnUp('right')"
-      @touchstart.prevent="onBtnDown('right')"
-      @touchend.prevent="onBtnUp('right')"
-      @touchcancel="onBtnUp('right')"
-    >[2] Player 2</div>
+    <div class="player-row">
+      <SevenSegDisplay :digits="segDigitsA" />
+      <div
+        class="key"
+        :class="{ active: rightPressed }"
+        @mousedown.prevent="onBtnDown('right')"
+        @mouseup.prevent="onBtnUp('right')"
+        @mouseleave="onBtnUp('right')"
+        @touchstart.prevent="onBtnDown('right')"
+        @touchend.prevent="onBtnUp('right')"
+        @touchcancel="onBtnUp('right')"
+      >[2] Player A</div>
+    </div>
     <p class="hint">Hold <kbd>1</kbd> / <kbd>2</kbd> keys or tap &amp; hold the buttons</p>
     <footer class="footer">
       <a href="https://github.com/lcasassa/f1_lights" target="_blank" rel="noopener">GitHub</a>
@@ -37,10 +43,13 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { createSim } from './f1sim.js'
 import F1Board from './components/F1Board.vue'
+import SevenSegDisplay from './components/SevenSegDisplay.vue'
 
 const LOOP_INTERVAL_MS = 20
 
 const leds = ref(Array(10).fill(false))
+const segDigitsA = ref(Array(4).fill(0))
+const segDigitsB = ref(Array(4).fill(0))
 const leftPressed = ref(false)
 const rightPressed = ref(false)
 
@@ -188,6 +197,22 @@ function updateButtons() {
   else sim.releaseRight()
 }
 
+function readSimState() {
+  if (!sim) return
+  const newLeds = []
+  for (let i = 1; i <= 10; i++) {
+    newLeds.push(sim.ledState(i))
+  }
+  leds.value = newLeds
+  try {
+    const all = sim.displayDigits()
+    segDigitsA.value = all.slice(0, 4)
+    segDigitsB.value = all.slice(4, 8)
+  } catch (e) {
+    // displayDigits may not be available if WASM was built without the export
+  }
+}
+
 function tick() {
   rafId = requestAnimationFrame(tick)
 
@@ -198,7 +223,8 @@ function tick() {
   // If we're frozen (blocking sound playing), wait it out then resync
   if (freezeUntilRealMs > 0) {
     if (nowReal < freezeUntilRealMs) {
-      // Still frozen — just render current LED state, don't advance sim
+      // Still frozen — update display state but don't advance sim
+      readSimState()
       return
     }
     // Freeze ended — resync real-time base so that the game continues
@@ -238,11 +264,7 @@ function tick() {
   }
 
   // Read LED states
-  const newLeds = []
-  for (let i = 1; i <= 10; i++) {
-    newLeds.push(sim.ledState(i))
-  }
-  leds.value = newLeds
+  readSimState()
 
   // Sync buzzer tone (for non-blocking tones like beeps)
   if (freezeUntilRealMs === 0) {
@@ -301,6 +323,12 @@ onUnmounted(() => {
   font-weight: bold;
   letter-spacing: 2px;
   margin: 0;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 

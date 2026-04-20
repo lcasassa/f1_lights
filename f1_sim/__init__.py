@@ -22,12 +22,12 @@ from typing import Dict
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Pin mapping — must match main.cpp
+# Pin mapping — must match ht16k33_display.h ledPins_[]
 _A0 = 14
 _A1 = 15
-_PIN_MAP = [4, 11, 12, _A0, _A1, 5, 10, 9, 8, 7]  # POS-1..POS-10
-BUTTON_LEFT_PIN = 2
-BUTTON_RIGHT_PIN = 3
+_LED_PIN_MAP = [6, 8, _A1, 11, 10, 4, 7, 9, _A0, 12]  # L1..L10
+BUTTON_A_PIN = 3   # BTN_A in main.cpp
+BUTTON_B_PIN = 2   # BTN_B in main.cpp
 HIGH = 1
 LOW = 0
 
@@ -170,7 +170,7 @@ class F1Sim:
         """Return True if LED at *position* (1-10) is ON."""
         if position < 1 or position > 10:
             raise ValueError("position must be 1-10")
-        pin = _PIN_MAP[position - 1]
+        pin = _LED_PIN_MAP[position - 1]
         return self.get_pin_value(pin) == HIGH
 
     def led_states(self) -> Dict[int, bool]:
@@ -188,20 +188,20 @@ class F1Sim:
     # ── Button helpers ───────────────────────────────────────────────────────
 
     def press_left(self):
-        """Simulate pressing the left button (active LOW with pull-up)."""
-        self.set_pin_input(BUTTON_LEFT_PIN, LOW)
+        """Simulate pressing button B / left player (active LOW with pull-up)."""
+        self.set_pin_input(BUTTON_B_PIN, LOW)
 
     def release_left(self):
-        """Simulate releasing the left button."""
-        self.set_pin_input(BUTTON_LEFT_PIN, HIGH)
+        """Simulate releasing button B / left player."""
+        self.set_pin_input(BUTTON_B_PIN, HIGH)
 
     def press_right(self):
-        """Simulate pressing the right button."""
-        self.set_pin_input(BUTTON_RIGHT_PIN, LOW)
+        """Simulate pressing button A / right player."""
+        self.set_pin_input(BUTTON_A_PIN, LOW)
 
     def release_right(self):
-        """Simulate releasing the right button."""
-        self.set_pin_input(BUTTON_RIGHT_PIN, HIGH)
+        """Simulate releasing button A / right player."""
+        self.set_pin_input(BUTTON_A_PIN, HIGH)
 
     def press_both(self):
         self.press_left()
@@ -210,6 +210,12 @@ class F1Sim:
     def release_both(self):
         self.release_left()
         self.release_right()
+
+    # Aliases matching main.cpp naming (BTN_A = pin 3, BTN_B = pin 2)
+    press_a = press_right
+    release_a = release_right
+    press_b = press_left
+    release_b = release_left
 
     # ── Full reset ───────────────────────────────────────────────────────────
 
