@@ -8,23 +8,19 @@
 //           HT16K33 Quad Alphanumeric backpack (0x70).
 //           10 red LEDs (L1-L10) on direct Arduino pins.
 //
-// Both displays share COM0-COM3.  Display A (digits 1-4) and display B
-// (digits 5-8) each use 8 ROW lines for segments A-G + DP = 16 ROWs needed.
-// The backpack only routes ROW0-ROW14 (15 lines, for 14-seg + DP).
-// ROW15 is NOT routed — solder to HT16K33 pin 25 to recover it.
+// The HT16K33 has 16 ROW × 8 COM = 128 LED positions.
+// The backpack routes ROW0-ROW14 (15 lines) and COM0-COM3 (4 lines).
+// Both displays share COM0-COM3 → 15 ROW × 4 COM = 60 positions.
 //
-// Because ROW15 is missing, display A's E pin shares ROW4 with display B's
-// D pin.  This means:
-//   {0,4} = 5D + 1E     {2,4} = 6D + 2E     {4,4} = 7D + 3E
-// These cannot be independently controlled → 1E, 2E, 3E marked UNAVAIL.
-// (1E lights up whenever 5D is on, etc.)
+// ── Rewire applied ──────────────────────────────────────────────────────
+// Display A (digits 1-4): E was on G2 pad (ROW7), coupled with Display B's G.
+// Fix: moved Display A's E wire from ROW7 to ROW0 (formerly DP).
+//      Display A's DP is now disconnected (UNAVAIL).
+//      Display B's G on ROW7 is fully independent.
 //
-// Digit 4 E: would need ROW15 ({7,7}) — not available.
-// Digit 8 A: would need ROW15 ({7,7}) — not available.
-//            Original position {6,2} is free (L7 moved to direct pin).
-//            Rewire 8A to {6,2} pad to recover it.
-//
-// {6,4} = 8D also ghosts 4B (hardware coupled on COM3)
+// Remaining issues:
+//   {6,4} = 8D also ghosts 4B (hardware coupled on COM3)
+//   8A: rewired to ROW2 pad → {6,2} (follows Display B pattern)
 
 class HT16K33Display {
 public:
@@ -201,10 +197,10 @@ private:
       {1, 1},         // B
       {0, 6},         // C
       {0, 1},         // D
-      {UNAVAIL, 0},   // E  — shares {0,4} with 5D, can't control independently
+      {0, 0},         // E  — rewired to ROW0 pad (formerly DP)
       {1, 0},         // F
       {1, 2},         // G
-      {0, 0},         // DP
+      {UNAVAIL, 0},   // DP — sacrificed, ROW0 now used for E
     },
     // Digit 2 (label "2")
     {
@@ -212,10 +208,10 @@ private:
       {3, 1},         // B
       {2, 6},         // C
       {2, 1},         // D
-      {UNAVAIL, 0},   // E  — shares {2,4} with 6D, can't control independently
+      {2, 0},         // E  — rewired to ROW0 pad (formerly DP)
       {3, 0},         // F
       {3, 2},         // G
-      {2, 0},         // DP
+      {UNAVAIL, 0},   // DP — sacrificed, ROW0 now used for E
     },
     // Digit 3 (label "3")
     {
@@ -223,10 +219,10 @@ private:
       {5, 1},         // B
       {4, 6},         // C
       {4, 1},         // D
-      {UNAVAIL, 0},   // E  — shares {4,4} with 7D, can't control independently
+      {4, 0},         // E  — rewired to ROW0 pad (formerly DP)
       {5, 0},         // F
       {5, 2},         // G
-      {4, 0},         // DP
+      {UNAVAIL, 0},   // DP — sacrificed, ROW0 now used for E
     },
     // Digit 4 — predicted from group A pattern on COM3 (bytes 6-7)
     {
@@ -234,20 +230,20 @@ private:
       {7, 1},         // B  — note: {6,4} (8D) also ghosts 4B
       {6, 6},         // C
       {6, 1},         // D
-      {UNAVAIL, 0},   // E  — {7,7} doesn't work (8A rewire failed)
+      {6, 0},         // E  — rewired to ROW0 pad (formerly DP)
       {7, 0},         // F
       {7, 2},         // G
-      {6, 0},         // DP
+      {UNAVAIL, 0},   // DP — sacrificed, ROW0 now used for E
     },
     // Digit 5 (label "5") — complete
     {
       {0, 2},         // A
       {0, 3},         // B
       {1, 5},         // C
-      {0, 4},         // D  — also lights 1E (hardware coupled)
+      {0, 4},         // D
       {1, 3},         // E
       {1, 6},         // F
-      {0, 7},         // G
+      {0, 7},         // G  — ROW7 (decoupled, E moved to ROW0)
       {1, 4},         // DP
     },
     // Digit 6 (label "6") — complete
@@ -255,10 +251,10 @@ private:
       {2, 2},         // A
       {2, 3},         // B
       {3, 5},         // C
-      {2, 4},         // D  — also lights 2E (hardware coupled)
+      {2, 4},         // D
       {3, 3},         // E
       {3, 6},         // F
-      {2, 7},         // G
+      {2, 7},         // G  — ROW7 (decoupled, E moved to ROW0)
       {3, 4},         // DP
     },
     // Digit 7 (label "7") — complete
@@ -266,21 +262,21 @@ private:
       {4, 2},         // A
       {4, 3},         // B
       {5, 5},         // C
-      {4, 4},         // D  — also lights 3E (hardware coupled)
+      {4, 4},         // D
       {5, 3},         // E
       {5, 6},         // F
-      {4, 7},         // G
+      {4, 7},         // G  — ROW7 (decoupled, E moved to ROW0)
       {5, 4},         // DP
     },
-    // Digit 8 — A unavailable (rewire failed)
+    // Digit 8
     {
-      {UNAVAIL, 0},   // A  — {7,7} doesn't work
+      {6, 2},         // A  — wired to ROW2 pad (same as 5A/6A/7A)
       {6, 3},         // B
       {7, 5},         // C
       {6, 4},         // D  — also ghosts 4B (hardware coupled)
       {7, 3},         // E
       {7, 6},         // F
-      {6, 7},         // G
+      {6, 7},         // G  — ROW7 (decoupled, E moved to ROW0)
       {7, 4},         // DP
     },
   };

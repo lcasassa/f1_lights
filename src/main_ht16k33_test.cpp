@@ -13,8 +13,6 @@ State state = IDLE;
 uint8_t litCount = 0;
 unsigned long stateTimer = 0;
 unsigned long lightsOutTime = 0;
-uint16_t winsA = 0;
-uint16_t winsB = 0;
 bool jumpA = false;
 bool jumpB = false;
 bool waitReleaseA = false;  // ignore button A until released
@@ -23,6 +21,11 @@ bool readyA = false;
 bool readyB = false;
 uint8_t borderFrame = 0;
 unsigned long borderTimer = 0;
+
+// Debounce state — instant press, delayed release
+constexpr unsigned long DEBOUNCE_MS = 20;
+bool stableA = false, stableB = false;
+unsigned long releaseA = 0, releaseB = 0;
 
 // Border animation: chase around the perimeter of all 4 digits
 // Each entry is {digit_1based, segment_mask}
@@ -44,28 +47,18 @@ const BorderStep BORDER_SEQ[] = {
 constexpr uint8_t BORDER_LEN = 12;
 constexpr unsigned long BORDER_MS = 60;
 
-void showWins() {
-  if (winsA > 0) display.setNumberA(winsA);
-  else display.setRawA(0);
-  if (winsB > 0) display.setNumberB(winsB);
-  else display.setRawB(0);
-}
-
 void startSequence() {
   state = LIGHTING;
   litCount = 0;
   display.setAllLeds(false);
-  showWins();
+  display.setRawA(0);
+  display.setRawB(0);
   display.write();
   stateTimer = millis() + 1000;
   jumpA = false;
   jumpB = false;
   waitReleaseA = true; waitReleaseB = true;
   Serial.println("\n--- New round ---");
-  Serial.print("Score: A=");
-  Serial.print(winsA);
-  Serial.print(" B=");
-  Serial.println(winsB);
 }
 
 void setup() {
@@ -80,6 +73,15 @@ void setup() {
 
   display.begin();
   randomSeed(analogRead(A7));  // seed from floating analog pin
+
+  // Startup flash: all LEDs + all segments on, short beep
+  display.setAllLeds(true);
+  for (uint8_t d = 1; d <= 8; d++) display.setRaw(d, 0xFF);
+  display.write();
+  tone(BUZZER, 1200, 20);
+  delay(300);
+  display.setAllLeds(false);
+  display.clear();
 
   // Interactive segment debug: both buttons held at startup
   if (digitalRead(BTN_A) == LOW && digitalRead(BTN_B) == LOW) {
@@ -162,23 +164,35 @@ void setup() {
     display.clear();
     waitReleaseA = true; waitReleaseB = true;
   }
-  showWins();
-  display.write();
 }
 
 void loop() {
-  bool btnA = digitalRead(BTN_A) == LOW;
-  bool btnB = digitalRead(BTN_B) == LOW;
   unsigned long now = millis();
 
+  // Debounce: act on press instantly, delay release by DEBOUNCE_MS
+  bool readA = digitalRead(BTN_A) == LOW;
+  bool readB = digitalRead(BTN_B) == LOW;
+
+  if (readA) { stableA = true;  releaseA = now; }
+  else if (now - releaseA >= DEBOUNCE_MS) { stableA = false; }
+
+  if (readB) { stableB = true;  releaseB = now; }
+  else if (now - releaseB >= DEBOUNCE_MS) { stableB = false; }
+
+  bool btnA = stableA;
+  bool btnB = stableB;
+
   // After starting a round, ignore each button until it's released
-  if (waitReleaseA) {
-    if (!btnA) waitReleaseA = false;
-    btnA = false;
-  }
-  if (waitReleaseB) {
-    if (!btnB) waitReleaseB = false;
-    btnB = false;
+  // (RESULT and JUMP_START handle waitRelease internally)
+  if (state != RESULT && state != JUMP_START) {
+    if (waitReleaseA) {
+      if (!btnA) waitReleaseA = false;
+      btnA = false;
+    }
+    if (waitReleaseB) {
+      if (!btnB) waitReleaseB = false;
+      btnB = false;
+    }
   }
 
   switch (state) {
@@ -258,14 +272,10 @@ void loop() {
         tone(BUZZER, 200, 500);
         display.setAllLeds(false);
         if (jumpA && !jumpB) {
-          winsB++;
           display.setDashA();
-          display.setNumberB(winsB);
           for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
           Serial.println("JUMP START by Player A! Player B wins.");
         } else if (jumpB && !jumpA) {
-          winsA++;
-          display.setNumberA(winsA);
           display.setDashB();
           for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
           Serial.println("JUMP START by Player B! Player A wins.");
@@ -306,8 +316,8 @@ void loop() {
         waitReleaseA = true; waitReleaseB = true;
         tone(BUZZER, 200, 500);
         display.setAllLeds(false);
-        if (jumpA && !jumpB) { winsB++; display.setDashA(); display.setNumberB(winsB); for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
-        else if (jumpB && !jumpA) { winsA++; display.setNumberA(winsA); display.setDashB(); for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true); Serial.println("JUMP START by Player B! Player A wins."); }
+        if (jumpA && !jumpB) { display.setDashA(); for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
+        else if (jumpB && !jumpA) { display.setDashB(); for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true); Serial.println("JUMP START by Player B! Player A wins."); }
         else { display.setDashA(); display.setDashB(); Serial.println("JUMP START by BOTH players! No winner."); }
         display.write();
         break;
@@ -315,6 +325,7 @@ void loop() {
 
       if (now >= stateTimer) {
         // LIGHTS OUT — GO!
+        display.setAllLeds(false);
         display.clear();
         tone(BUZZER, 1500, 150);
         lightsOutTime = now;
@@ -354,7 +365,6 @@ void loop() {
 
         // Determine winner
         if (reactionA < reactionB) {
-          winsA++;
           for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
           tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
           Serial.print("Player A wins! A=");
@@ -363,7 +373,6 @@ void loop() {
           Serial.print(hitB ? reactionB : 0);
           Serial.println(hitB ? "ms" : "(no press)");
         } else if (reactionB < reactionA) {
-          winsB++;
           for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
           tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
           Serial.print("Player B wins! A=");
@@ -381,10 +390,6 @@ void loop() {
           Serial.println("ms");
         }
         display.write();
-        Serial.print("Score: A=");
-        Serial.print(winsA);
-        Serial.print(" B=");
-        Serial.println(winsB);
 
         state = RESULT;
         stateTimer = now;
@@ -405,6 +410,11 @@ void loop() {
 
     case JUMP_START:
     case RESULT:
+      // Wait for BOTH buttons to be released first, then accept a press
+      if (waitReleaseA && !btnA) waitReleaseA = false;
+      if (waitReleaseB && !btnB) waitReleaseB = false;
+      if (waitReleaseA || waitReleaseB) break;
+
       // Show result until a player presses a button — that press also counts as ready
       if (btnA || btnB) {
         display.setAllLeds(false);
