@@ -44,7 +44,7 @@ def test_start_lighting_sequence(sim: F1Sim):
 
 
 def test_lighting_sequence_pairs(sim: F1Sim):
-    """LED pairs light up during LIGHTING: first gap 1000ms, then 800ms each."""
+    """LED pairs light up during LIGHTING: 1000ms between each pair (F1 standard)."""
     sim.advance_millis(100)
     start_round(sim)
 
@@ -55,18 +55,18 @@ def test_lighting_sequence_pairs(sim: F1Sim):
     assert sim.led_state(2) is True
     assert sim.led_state(7) is True
 
-    # Pairs 3-5 at 800ms intervals
-    sim.advance_millis(800)
+    # Pairs 3-5 at 1000ms intervals
+    sim.advance_millis(1000)
     sim.loop()
     assert sim.led_state(3) is True
     assert sim.led_state(8) is True
 
-    sim.advance_millis(800)
+    sim.advance_millis(1000)
     sim.loop()
     assert sim.led_state(4) is True
     assert sim.led_state(9) is True
 
-    sim.advance_millis(800)
+    sim.advance_millis(1000)
     sim.loop()
     assert sim.led_state(5) is True
     assert sim.led_state(10) is True
@@ -80,11 +80,11 @@ def test_lights_out_race(sim: F1Sim):
     sim.advance_millis(100)
     start_round(sim)
 
-    # Advance through all pairs: 1000 + 3*800 = 3400ms
+    # Advance through all pairs: 1000ms × 4 remaining
     sim.advance_millis(1000)
     sim.loop()
     for _ in range(3):
-        sim.advance_millis(800)
+        sim.advance_millis(1000)
         sim.loop()
 
     # All LEDs on
@@ -183,11 +183,11 @@ def test_jump_start_during_wait_go(sim: F1Sim, jump_side):
     sim.advance_millis(100)
     start_round(sim)
 
-    # Advance through all pairs: 1000 + 3*800 = 3400ms
+    # Advance through all pairs: 4 × 1000ms
     sim.advance_millis(1000)
     sim.loop()
     for _ in range(3):
-        sim.advance_millis(800)
+        sim.advance_millis(1000)
         sim.loop()
 
     # All on, now in WAIT_GO

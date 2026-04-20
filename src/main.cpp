@@ -319,7 +319,7 @@ void loop() {
           state = WAIT_GO;
           stateTimer = now + 1000 + (random(3000));
         } else {
-          stateTimer = now + 800;  // next pair in 800ms
+          stateTimer = now + 1000;  // next pair in 1s (F1 standard)
         }
       }
       break;
