@@ -105,7 +105,7 @@ display: sim
 
 # ── Web simulator (Vue + WASM) ──────────────────────────────────────────────
 WASM_OUT = web/public/f1sim.js
-WASM_SOURCES = $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.cpp $(SIM_CSRC)/Arduino.h
+WASM_SOURCES = $(SIM_CSRC)/arduino_stub.cpp $(SIM_CSRC)/sim_bridge.cpp src/main.cpp $(SIM_CSRC)/Arduino.h $(SIM_CSRC)/Wire.h src/ht16k33_display.h
 
 wasm: $(WASM_OUT)
 
