@@ -106,8 +106,8 @@ def test_player_a_wins(sim_at_race: F1Sim):
     sim.press_a()
     sim.advance_millis(25)
     sim.loop()
-    # Allow the 100ms grace window to pass
-    sim.advance_millis(120)
+    # Wait for the 100ms grace window to expire
+    sim.advance_millis(100)
     sim.loop()
 
     # Player A wins: L1-L5 should be on (A's row)
@@ -122,7 +122,8 @@ def test_player_b_wins(sim_at_race: F1Sim):
     sim.press_b()
     sim.advance_millis(25)
     sim.loop()
-    sim.advance_millis(120)
+    # Wait for the 100ms grace window to expire
+    sim.advance_millis(100)
     sim.loop()
 
     # Player B wins: L6-L10 should be on
@@ -137,7 +138,8 @@ def test_tie_both_press(sim_at_race: F1Sim):
     sim.press_both()
     sim.advance_millis(25)
     sim.loop()
-    sim.advance_millis(120)
+    # RACE_GRACE processes on next loop
+    sim.advance_millis(1)
     sim.loop()
 
     # Tie: all LEDs on
@@ -215,15 +217,21 @@ def test_result_restart(sim_at_race: F1Sim):
 
     # Player A wins
     sim.press_a()
-    sim.advance_millis(150)
+    sim.advance_millis(25)
     sim.loop()
-
-    # Release button (waitRelease needs release first)
+    # Grace window expires (100ms)
+    sim.advance_millis(100)
+    sim.loop()
+    # Now in RESULT (after winner melody delay). Release button.
     sim.release_a()
     sim.advance_millis(25)
     sim.loop()
 
-    # Now press A again to enter READY
+    # Wait for result display time (2 seconds)
+    sim.advance_millis(2000)
+    sim.loop()
+
+    # Now press A to enter READY
     sim.press_a()
     sim.advance_millis(25)
     sim.loop()

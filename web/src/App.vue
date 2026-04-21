@@ -293,6 +293,8 @@ onMounted(() => {
     simTimeMs = postSetupMs
     startRealMs = performance.now()
     rafId = requestAnimationFrame(tick)
+    // Read initial display state so the READY animation is visible immediately
+    readSimState()
   }, startupDurationSec * 1000)
 
   window.addEventListener('keydown', onKeyDown)

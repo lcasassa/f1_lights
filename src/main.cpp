@@ -7,7 +7,7 @@ constexpr uint8_t BTN_A = 3;
 constexpr uint8_t BTN_B = 2;
 constexpr uint8_t BUZZER = 5;
 
-enum State { IDLE, READY, LIGHTING, WAIT_GO, RACE, RESULT, JUMP_START };
+enum State { IDLE, READY, LIGHTING, WAIT_GO, RACE, RACE_GRACE, RESULT, JUMP_START };
 
 State state = IDLE;
 uint8_t litCount = 0;
@@ -21,6 +21,17 @@ bool readyA = false;
 bool readyB = false;
 uint8_t borderFrame = 0;
 unsigned long borderTimer = 0;
+
+// RACE grace window (non-blocking 100ms wait for second player)
+constexpr unsigned long RACE_GRACE_MS = 100;
+unsigned long raceGraceStart = 0;
+bool raceHitA = false;
+bool raceHitB = false;
+uint16_t raceReactionA = 9999;
+uint16_t raceReactionB = 9999;
+
+// Minimum time to display results before accepting restart
+constexpr unsigned long RESULT_DISPLAY_MS = 2000;
 
 // Debounce state — instant press, delayed release
 constexpr unsigned long DEBOUNCE_MS = 20;
@@ -75,6 +86,11 @@ void setup() {
   readyB = false;
   borderFrame = 0;
   borderTimer = 0;
+  raceGraceStart = 0;
+  raceHitA = false;
+  raceHitB = false;
+  raceReactionA = 9999;
+  raceReactionB = 9999;
   stableA = false;
   stableB = false;
   releaseA = 0;
@@ -100,6 +116,13 @@ void setup() {
   delay(300);
   display.setAllLeds(false);
   display.clear();
+
+  // Start in READY state so the "waiting for players" animation plays immediately
+  state = READY;
+  readyA = false;
+  readyB = false;
+  borderFrame = 0;
+  borderTimer = millis();
 
   // Interactive segment debug: both buttons held at startup
   if (digitalRead(BTN_A) == LOW && digitalRead(BTN_B) == LOW) {
@@ -181,6 +204,12 @@ void setup() {
     Serial.println(F("\n=== EXIT DEBUG MODE ===\n"));
     display.clear();
     waitReleaseA = true; waitReleaseB = true;
+    // Restart in READY state after debug
+    state = READY;
+    readyA = false;
+    readyB = false;
+    borderFrame = 0;
+    borderTimer = millis();
   }
 }
 
@@ -201,8 +230,8 @@ void loop() {
   bool btnB = stableB;
 
   // After starting a round, ignore each button until it's released
-  // (RESULT and JUMP_START handle waitRelease internally)
-  if (state != RESULT && state != JUMP_START) {
+  // (RESULT, JUMP_START, and RACE_GRACE handle waitRelease internally)
+  if (state != RESULT && state != JUMP_START && state != RACE_GRACE) {
     if (waitReleaseA) {
       if (!btnA) waitReleaseA = false;
       btnA = false;
@@ -357,61 +386,21 @@ void loop() {
       bool hitB = btnB;
 
       if (hitA || hitB) {
-        uint16_t reactionA = hitA ? (uint16_t)(now - lightsOutTime) : 9999;
-        uint16_t reactionB = hitB ? (uint16_t)(now - lightsOutTime) : 9999;
+        // Record first press(es)
+        raceHitA = hitA;
+        raceHitB = hitB;
+        raceReactionA = hitA ? (uint16_t)(now - lightsOutTime) : 9999;
+        raceReactionB = hitB ? (uint16_t)(now - lightsOutTime) : 9999;
 
-        // Wait briefly for the other player
-        if (!hitA || !hitB) {
-          unsigned long deadline = now + 100;
-          while (millis() < deadline) {
-            if (!hitA && digitalRead(BTN_A) == LOW) {
-              hitA = true;
-              reactionA = (uint16_t)(millis() - lightsOutTime);
-            }
-            if (!hitB && digitalRead(BTN_B) == LOW) {
-              hitB = true;
-              reactionB = (uint16_t)(millis() - lightsOutTime);
-            }
-          }
-        }
-
-        // Show reaction times (dash for non-presser)
-        if (hitA) { display.setNumberA(reactionA > 9999 ? 9999 : reactionA, true); display.setDP(1, true); }
-        else      { display.setDashA(); display.setDP(1, false); }
-        if (hitB) { display.setNumberB(reactionB > 9999 ? 9999 : reactionB, true); display.setDP(5, true); }
-        else      { display.setDashB(); display.setDP(5, false); }
-
-        // Determine winner
-        if (reactionA < reactionB) {
-          for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
-          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
-          Serial.print("Player A wins! A=");
-          Serial.print(reactionA);
-          Serial.print("ms B=");
-          Serial.print(hitB ? reactionB : 0);
-          Serial.println(hitB ? "ms" : "(no press)");
-        } else if (reactionB < reactionA) {
-          for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
-          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
-          Serial.print("Player B wins! A=");
-          Serial.print(hitA ? reactionA : 0);
-          Serial.print(hitA ? "ms" : "(no press)");
-          Serial.print(" B=");
-          Serial.print(reactionB);
-          Serial.println("ms");
+        if (raceHitA && raceHitB) {
+          // Both pressed on the same tick — skip grace window
+          state = RACE_GRACE;
+          raceGraceStart = now - RACE_GRACE_MS;  // immediately expire
         } else {
-          // Tie — flash all
-          display.setAllLeds(true);
-          tone(BUZZER, 800, 200);
-          Serial.print("TIE! Both at ");
-          Serial.print(reactionA);
-          Serial.println("ms");
+          // One pressed — start non-blocking grace window for the other
+          state = RACE_GRACE;
+          raceGraceStart = now;
         }
-        display.write();
-
-        state = RESULT;
-        stateTimer = now;
-        waitReleaseA = true; waitReleaseB = true;
       }
 
       // Timeout after 3 seconds — nobody pressed
@@ -421,17 +410,75 @@ void loop() {
         display.write();
         state = RESULT;
         stateTimer = now;
+        waitReleaseA = true; waitReleaseB = true;
         Serial.println("TIMEOUT! Nobody pressed.");
+      }
+      break;
+    }
+
+    case RACE_GRACE: {
+      // Non-blocking 100ms grace window: check if the other player also pressed
+      if (!raceHitA && btnA) {
+        raceHitA = true;
+        raceReactionA = (uint16_t)(now - lightsOutTime);
+      }
+      if (!raceHitB && btnB) {
+        raceHitB = true;
+        raceReactionB = (uint16_t)(now - lightsOutTime);
+      }
+
+      // Grace period expired (or both pressed) — show results
+      if ((now - raceGraceStart >= RACE_GRACE_MS) || (raceHitA && raceHitB)) {
+        // Show reaction times (dash for non-presser)
+        if (raceHitA) { display.setNumberA(raceReactionA > 9999 ? 9999 : raceReactionA, true); display.setDP(1, true); }
+        else          { display.setDashA(); display.setDP(1, false); }
+        if (raceHitB) { display.setNumberB(raceReactionB > 9999 ? 9999 : raceReactionB, true); display.setDP(5, true); }
+        else          { display.setDashB(); display.setDP(5, false); }
+
+        // Determine winner
+        if (raceReactionA < raceReactionB) {
+          for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
+          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
+          Serial.print("Player A wins! A=");
+          Serial.print(raceReactionA);
+          Serial.print("ms B=");
+          Serial.print(raceHitB ? raceReactionB : 0);
+          Serial.println(raceHitB ? "ms" : "(no press)");
+        } else if (raceReactionB < raceReactionA) {
+          for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
+          tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
+          Serial.print("Player B wins! A=");
+          Serial.print(raceHitA ? raceReactionA : 0);
+          Serial.print(raceHitA ? "ms" : "(no press)");
+          Serial.print(" B=");
+          Serial.print(raceReactionB);
+          Serial.println("ms");
+        } else {
+          // Tie — flash all
+          display.setAllLeds(true);
+          tone(BUZZER, 800, 200);
+          Serial.print("TIE! Both at ");
+          Serial.print(raceReactionA);
+          Serial.println("ms");
+        }
+        display.write();
+
+        state = RESULT;
+        stateTimer = millis();  // use millis() since delay() may have advanced clock
+        waitReleaseA = true; waitReleaseB = true;
       }
       break;
     }
 
     case JUMP_START:
     case RESULT:
-      // Wait for BOTH buttons to be released first, then accept a press
+      // Wait for BOTH buttons to be released first
       if (waitReleaseA && !btnA) waitReleaseA = false;
       if (waitReleaseB && !btnB) waitReleaseB = false;
       if (waitReleaseA || waitReleaseB) break;
+
+      // Enforce minimum display time before accepting restart
+      if (now - stateTimer < RESULT_DISPLAY_MS) break;
 
       // Show result until a player presses a button — that press also counts as ready
       if (btnA || btnB) {
