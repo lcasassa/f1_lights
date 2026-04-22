@@ -6,7 +6,7 @@
 //
 // Hardware: 2× 12-pin 4-digit 7-segment displays wired to an Adafruit
 //           HT16K33 Quad Alphanumeric backpack (0x70).
-//           10 red LEDs (L1-L10) on direct Arduino pins.
+//           10 red LEDs (L1-L10) on direct Arduino pins (see led_panel.h).
 //
 // The HT16K33 has 16 ROW × 8 COM = 128 LED positions.
 // The backpack routes ROW0-ROW14 (15 lines) and COM0-COM3 (4 lines).
@@ -29,7 +29,6 @@ public:
   // Digit indices (1-based labels → 0-based array index)
   // Group A = digits 1-4, Group B = digits 5-8
   static constexpr uint8_t NUM_DIGITS = 8;
-  static constexpr uint8_t NUM_LEDS   = 10;
 
   void begin() {
     Wire.begin();
@@ -37,11 +36,6 @@ public:
     cmd(0x81);        // display on, no blink
     cmd(0xE0 | 15);   // max brightness
     clear();
-    // Initialise direct-drive LED pins
-    for (uint8_t i = 0; i < NUM_LEDS; i++) {
-      pinMode(ledPins_[i], OUTPUT);
-      digitalWrite(ledPins_[i], LOW);
-    }
   }
 
   void clear() {
@@ -134,16 +128,6 @@ public:
     A | B | C | D | F | G,          // 9
   };
 
-  // ── Red LEDs (L1-L10) — direct Arduino pins ───────────────────────────
-
-  void setLed(uint8_t led, bool on) {  // led = 1..10
-    if (led < 1 || led > NUM_LEDS) return;
-    digitalWrite(ledPins_[led - 1], on ? HIGH : LOW);
-  }
-
-  void setAllLeds(bool on) {
-    for (uint8_t i = 1; i <= NUM_LEDS; i++) setLed(i, on);
-  }
 
   // ── Flush buffer to hardware ───────────────────────────────────────────
 
@@ -157,23 +141,7 @@ public:
 private:
   uint8_t buf_[16] = {};
 
-  // ── Direct-drive LED pin mapping (L1..L10) ─────────────────────────────
-  static constexpr uint8_t ledPins_[10] = {
-
-    6,  // L1
-    8,  // L2
-    A1, // L3
-    11, // L4
-    10, // L5
-    4,  // L6
-    7,  // L7
-    9,  // L8
-    A0, // L9
-    12, // L10
-
-  };
-
-  // Segment bit flags (private aliases)
+  // ── Red LED → (byte, bit) — REMOVED, LEDs now in led_panel.h ──────────
   static constexpr uint8_t SEG_A  = A;
   static constexpr uint8_t SEG_B  = B;
   static constexpr uint8_t SEG_C  = C;
@@ -333,4 +301,3 @@ private:
 // Out-of-class definitions required by AVR C++11 linker
 constexpr uint8_t HT16K33Display::FONT[10];
 constexpr uint8_t HT16K33Display::segMap_[8][8][2];
-constexpr uint8_t HT16K33Display::ledPins_[10];
