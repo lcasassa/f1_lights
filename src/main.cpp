@@ -1,7 +1,9 @@
 #include <Arduino.h>
 #include "ht16k33_display.h"
+#include "led_panel.h"
 
 HT16K33Display display;
+LedPanel leds;
 
 constexpr uint8_t BTN_A = 3;
 constexpr uint8_t BTN_B = 2;
@@ -61,7 +63,7 @@ constexpr unsigned long BORDER_MS = 60;
 void startSequence() {
   state = LIGHTING;
   litCount = 0;
-  display.setAllLeds(false);
+  leds.setAllLeds(false);
   display.setRawA(0);
   display.setRawB(0);
   display.write();
@@ -109,12 +111,12 @@ void setup() {
   randomSeed(analogRead(A7));  // seed from floating analog pin
 
   // Startup flash: all LEDs + all segments on, short beep
-  display.setAllLeds(true);
+  leds.setAllLeds(true);
   for (uint8_t d = 1; d <= 8; d++) display.setRaw(d, 0xFF);
   display.write();
   tone(BUZZER, 1200, 20);
   delay(300);
-  display.setAllLeds(false);
+  leds.setAllLeds(false);
   display.clear();
 
   // Start in READY state so the "waiting for players" animation plays immediately
@@ -123,6 +125,52 @@ void setup() {
   readyB = false;
   borderFrame = 0;
   borderTimer = millis();
+
+  // Single button held at startup: hardware test sequence (LEDs one-by-one + all segments)
+  if ((digitalRead(BTN_A) == LOW) != (digitalRead(BTN_B) == LOW)) {
+    Serial.println(F("\n=== HARDWARE TEST SEQUENCE ==="));
+
+    // Light each LED one by one (L1-L10)
+    for (uint8_t i = 1; i <= 10; i++) {
+      leds.setAllLeds(false);
+      leds.setLed(i, true);
+      display.write();
+      Serial.print(F("LED ")); Serial.println(i);
+      tone(BUZZER, 800 + i * 50, 50);
+      delay(300);
+    }
+
+    // All LEDs on
+    leds.setAllLeds(true);
+    display.write();
+    delay(500);
+
+    // Walk each digit with all segments
+    for (uint8_t d = 1; d <= 8; d++) {
+      for (uint8_t o = 1; o <= 8; o++) display.setRaw(o, 0);
+      display.setRaw(d, 0xFF);
+      display.write();
+      Serial.print(F("Digit ")); Serial.println(d);
+      delay(300);
+    }
+
+    // All segments on briefly
+    for (uint8_t d = 1; d <= 8; d++) display.setRaw(d, 0xFF);
+    display.write();
+    delay(500);
+
+    // Clean up
+    leds.setAllLeds(false);
+    display.clear();
+    Serial.println(F("=== TEST COMPLETE ===\n"));
+
+    // Return to READY state
+    state = READY;
+    readyA = false;
+    readyB = false;
+    borderFrame = 0;
+    borderTimer = millis();
+  }
 
   // Interactive segment debug: both buttons held at startup
   if (digitalRead(BTN_A) == LOW && digitalRead(BTN_B) == LOW) {
@@ -169,9 +217,6 @@ void setup() {
       Serial.println();
     };
 
-    // Wait for both buttons released first
-    while (digitalRead(BTN_A) == LOW || digitalRead(BTN_B) == LOW) {}
-    delay(50);
 
     Serial.println(F("\n=== SEGMENT DEBUG MODE ==="));
     Serial.println(F("BTN_A (pin 3) = next, BTN_B (pin 2) = prev"));
@@ -300,8 +345,8 @@ void loop() {
         Serial.println("Both players ready!");
         startSequence();
         litCount = 1;  // first pair already lit
-        display.setLed(1, true);
-        display.setLed(6, true);
+        leds.setLed(1, true);
+        leds.setLed(6, true);
         tone(BUZZER, 1000, 200);  // F1-style beep: 1kHz, 200ms
         display.write();
       }
@@ -317,14 +362,14 @@ void loop() {
         stateTimer = now;
         waitReleaseA = true; waitReleaseB = true;
         tone(BUZZER, 200, 500);
-        display.setAllLeds(false);
+        leds.setAllLeds(false);
         if (jumpA && !jumpB) {
           display.setDashA();
-          for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
+          for (uint8_t i = 6; i <= 10; i++) leds.setLed(i, true);
           Serial.println("JUMP START by Player A! Player B wins.");
         } else if (jumpB && !jumpA) {
           display.setDashB();
-          for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
+          for (uint8_t i = 1; i <= 5; i++) leds.setLed(i, true);
           Serial.println("JUMP START by Player B! Player A wins.");
         } else {
           display.setDashA();
@@ -338,8 +383,8 @@ void loop() {
       if (now >= stateTimer) {
         litCount++;
         // Light LEDs in pairs: L1+L6, L2+L7, L3+L8, L4+L9, L5+L10
-        display.setLed(litCount, true);
-        display.setLed(litCount + 5, true);
+        leds.setLed(litCount, true);
+        leds.setLed(litCount + 5, true);
         display.write();
         tone(BUZZER, 1000, 200);  // F1-style beep: 1kHz, 200ms
 
@@ -362,9 +407,9 @@ void loop() {
         stateTimer = now;
         waitReleaseA = true; waitReleaseB = true;
         tone(BUZZER, 200, 500);
-        display.setAllLeds(false);
-        if (jumpA && !jumpB) { display.setDashA(); for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
-        else if (jumpB && !jumpA) { display.setDashB(); for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true); Serial.println("JUMP START by Player B! Player A wins."); }
+        leds.setAllLeds(false);
+        if (jumpA && !jumpB) { display.setDashA(); for (uint8_t i = 6; i <= 10; i++) leds.setLed(i, true); Serial.println("JUMP START by Player A! Player B wins."); }
+        else if (jumpB && !jumpA) { display.setDashB(); for (uint8_t i = 1; i <= 5; i++) leds.setLed(i, true); Serial.println("JUMP START by Player B! Player A wins."); }
         else { display.setDashA(); display.setDashB(); Serial.println("JUMP START by BOTH players! No winner."); }
         display.write();
         break;
@@ -372,7 +417,7 @@ void loop() {
 
       if (now >= stateTimer) {
         // LIGHTS OUT — GO!
-        display.setAllLeds(false);
+        leds.setAllLeds(false);
         display.clear();
         noTone(BUZZER);  // silence — in F1, lights out is purely visual
         lightsOutTime = now;
@@ -437,7 +482,7 @@ void loop() {
 
         // Determine winner
         if (raceReactionA < raceReactionB) {
-          for (uint8_t i = 1; i <= 5; i++) display.setLed(i, true);
+          for (uint8_t i = 1; i <= 5; i++) leds.setLed(i, true);
           tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
           Serial.print("Player A wins! A=");
           Serial.print(raceReactionA);
@@ -445,7 +490,7 @@ void loop() {
           Serial.print(raceHitB ? raceReactionB : 0);
           Serial.println(raceHitB ? "ms" : "(no press)");
         } else if (raceReactionB < raceReactionA) {
-          for (uint8_t i = 6; i <= 10; i++) display.setLed(i, true);
+          for (uint8_t i = 6; i <= 10; i++) leds.setLed(i, true);
           tone(BUZZER, 1000, 80); delay(100); tone(BUZZER, 1300, 80); delay(100); tone(BUZZER, 1600, 120);
           Serial.print("Player B wins! A=");
           Serial.print(raceHitA ? raceReactionA : 0);
@@ -455,7 +500,7 @@ void loop() {
           Serial.println("ms");
         } else {
           // Tie — flash all
-          display.setAllLeds(true);
+          leds.setAllLeds(true);
           tone(BUZZER, 800, 200);
           Serial.print("TIE! Both at ");
           Serial.print(raceReactionA);
@@ -482,7 +527,7 @@ void loop() {
 
       // Show result until a player presses a button — that press also counts as ready
       if (btnA || btnB) {
-        display.setAllLeds(false);
+        leds.setAllLeds(false);
         display.clear();
         readyA = btnA;
         readyB = btnB;

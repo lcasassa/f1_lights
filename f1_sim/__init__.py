@@ -22,7 +22,7 @@ from typing import Dict
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Pin mapping — must match ht16k33_display.h ledPins_[]
+# Pin mapping — must match led_panel.h pins_[]
 _A0 = 14
 _A1 = 15
 _LED_PIN_MAP = [6, 8, _A1, 11, 10, 4, 7, 9, _A0, 12]  # L1..L10
