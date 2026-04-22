@@ -276,7 +276,7 @@ void loop() {
           else
             display.setRaw(tail.digit, tail.seg);
         } else {
-          display.setRawA(HT16K33Display::D);
+          for (uint8_t d = 1; d <= 4; d++) display.setRaw(d, 0);
         }
 
         if (!readyB) {
@@ -289,7 +289,7 @@ void loop() {
           else
             display.setRaw(tail.digit + 4, tail.seg);
         } else {
-          display.setRawB(HT16K33Display::D);
+          for (uint8_t d = 5; d <= 8; d++) display.setRaw(d, 0);
         }
 
         display.write();
