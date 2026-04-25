@@ -88,6 +88,9 @@ uint8_t grid[MATRIX_W][MATRIX_H];
 int8_t curX;
 int16_t curY;
 uint8_t curPiece;
+uint8_t curRot;
+int8_t targetX;    // best X to move toward
+uint8_t targetRot; // best rotation to reach
 unsigned long fallTimer;
 constexpr unsigned long FALL_MS = 50;
 
@@ -95,36 +98,134 @@ int8_t blk(uint8_t p, uint8_t i, uint8_t a) {
   return (int8_t)pgm_read_byte(&PIECE_BLOCKS[p][i][a]);
 }
 
+// Get rotated block offset. rot: 0=normal, 1=CW90, 2=180, 3=CCW90
+// Rotation around origin: (dx,dy) → CW90:(dy,-dx) → 180:(-dx,-dy) → CCW90:(-dy,dx)
+// After rotation, normalize so min x and min y are 0.
+void getRotatedBlocks(uint8_t p, uint8_t rot, int8_t outX[4], int8_t outY[4]) {
+  int8_t minX = 127, minY = 127;
+  for (uint8_t i = 0; i < 4; i++) {
+    int8_t dx = blk(p, i, 0);
+    int8_t dy = blk(p, i, 1);
+    switch (rot & 3) {
+      case 0: outX[i] = dx;  outY[i] = dy;  break;
+      case 1: outX[i] = dy;  outY[i] = -dx; break;
+      case 2: outX[i] = -dx; outY[i] = -dy; break;
+      case 3: outX[i] = -dy; outY[i] = dx;  break;
+    }
+    if (outX[i] < minX) minX = outX[i];
+    if (outY[i] < minY) minY = outY[i];
+  }
+  // Normalize to (0,0) origin
+  for (uint8_t i = 0; i < 4; i++) {
+    outX[i] -= minX;
+    outY[i] -= minY;
+  }
+}
+
+// Forward declaration
+bool canPlaceRot(int8_t px, int16_t py, uint8_t p, uint8_t rot);
+
+int16_t dropYRot(int8_t px, uint8_t p, uint8_t rot) {
+  int16_t y = -3;
+  while (canPlaceRot(px, y + 1, p, rot)) y++;
+  return y;
+}
+
+uint16_t countHolesRot(int8_t px, int16_t py, uint8_t p, uint8_t rot) {
+  int8_t bx[4], by_[4];
+  getRotatedBlocks(p, rot, bx, by_);
+  // Temporarily place
+  for (uint8_t i = 0; i < 4; i++) {
+    int8_t gx = px + bx[i];
+    int16_t gy = py + by_[i];
+    if (gx >= 0 && gx < MATRIX_W && gy >= 0 && gy < MATRIX_H)
+      grid[gx][gy] = p + 1;
+  }
+  uint16_t holes = 0;
+  for (uint8_t x = 0; x < MATRIX_W; x++) {
+    bool found = false;
+    for (uint8_t y = 0; y < MATRIX_H; y++) {
+      if (grid[x][y]) found = true;
+      else if (found) holes++;
+    }
+  }
+  // Undo
+  for (uint8_t i = 0; i < 4; i++) {
+    int8_t gx = px + bx[i];
+    int16_t gy = py + by_[i];
+    if (gx >= 0 && gx < MATRIX_W && gy >= 0 && gy < MATRIX_H)
+      grid[gx][gy] = 0;
+  }
+  return holes;
+}
+
+// Find the best placement for a piece (target X and rotation)
+void findBestPlacement(uint8_t piece, int8_t &bestX, uint8_t &bestRot) {
+  int16_t bestY = -100;
+  uint16_t bestHoles = 0xFFFF;
+  bestX = 0;
+  bestRot = 0;
+
+  for (uint8_t rot = 0; rot < 4; rot++) {
+    int8_t bxArr[4], byArr[4];
+    getRotatedBlocks(piece, rot, bxArr, byArr);
+    int8_t minDx = 127, maxDx = -128;
+    for (uint8_t i = 0; i < 4; i++) {
+      if (bxArr[i] < minDx) minDx = bxArr[i];
+      if (bxArr[i] > maxDx) maxDx = bxArr[i];
+    }
+    for (int8_t tx = -minDx; tx <= MATRIX_W - 1 - maxDx; tx++) {
+      int16_t ty = dropYRot(tx, piece, rot);
+      uint16_t h = countHolesRot(tx, ty, piece, rot);
+      if (h < bestHoles || (h == bestHoles && ty > bestY)) {
+        bestHoles = h;
+        bestY = ty;
+        bestX = tx;
+        bestRot = rot;
+      }
+    }
+  }
+}
+
 void spawnPiece() {
   curPiece = random(NUM_PIECES);
+  curRot = random(4);
+  // Random start X, clamped to valid range for this rotation
+  int8_t bxArr[4], byArr[4];
+  getRotatedBlocks(curPiece, curRot, bxArr, byArr);
   int8_t minDx = 127, maxDx = -128;
   for (uint8_t i = 0; i < 4; i++) {
-    int8_t dx = blk(curPiece, i, 0);
-    if (dx < minDx) minDx = dx;
-    if (dx > maxDx) maxDx = dx;
+    if (bxArr[i] < minDx) minDx = bxArr[i];
+    if (bxArr[i] > maxDx) maxDx = bxArr[i];
   }
   curX = random(-minDx, MATRIX_W - maxDx);
-  curY = -2;
+  curY = -3;
+  // Compute best target
+  findBestPlacement(curPiece, targetX, targetRot);
   fallTimer = millis();
 }
 
-bool canPlace(int8_t px, int16_t py, uint8_t p) {
+bool canPlaceRot(int8_t px, int16_t py, uint8_t p, uint8_t rot) {
+  int8_t bx[4], by_[4];
+  getRotatedBlocks(p, rot, bx, by_);
   for (uint8_t i = 0; i < 4; i++) {
-    int8_t bx = px + blk(p, i, 0);
-    int16_t by = py + blk(p, i, 1);
-    if (bx < 0 || bx >= MATRIX_W) return false;
-    if (by >= (int16_t)MATRIX_H) return false;
-    if (by >= 0 && grid[bx][by]) return false;
+    int8_t gx = px + bx[i];
+    int16_t gy = py + by_[i];
+    if (gx < 0 || gx >= MATRIX_W) return false;
+    if (gy >= (int16_t)MATRIX_H) return false;
+    if (gy >= 0 && grid[gx][gy]) return false;
   }
   return true;
 }
 
 void lockPiece() {
+  int8_t bx[4], by_[4];
+  getRotatedBlocks(curPiece, curRot, bx, by_);
   for (uint8_t i = 0; i < 4; i++) {
-    int8_t bx = curX + blk(curPiece, i, 0);
-    int16_t by = curY + blk(curPiece, i, 1);
-    if (bx >= 0 && bx < (int8_t)MATRIX_W && by >= 0 && by < (int16_t)MATRIX_H) {
-      grid[bx][by] = curPiece + 1;
+    int8_t gx = curX + bx[i];
+    int16_t gy = curY + by_[i];
+    if (gx >= 0 && gx < (int8_t)MATRIX_W && gy >= 0 && gy < (int16_t)MATRIX_H) {
+      grid[gx][gy] = curPiece + 1;
     }
   }
 }
@@ -162,9 +263,11 @@ void render() {
       }
     }
   }
+  int8_t rbx[4], rby[4];
+  getRotatedBlocks(curPiece, curRot, rbx, rby);
   for (uint8_t i = 0; i < 4; i++) {
-    int8_t bx = curX + blk(curPiece, i, 0);
-    int16_t by = curY + blk(curPiece, i, 1);
+    int8_t bx = curX + rbx[i];
+    int16_t by = curY + rby[i];
     if (bx >= 0 && bx < (int8_t)MATRIX_W && by >= 0 && by < (int16_t)MATRIX_H) {
       setPixel((uint8_t)bx, (uint8_t)by, pgm_read_byte(&PIECE_COL[curPiece]));
     }
@@ -186,8 +289,21 @@ void loop() {
   unsigned long now = millis();
   if (now - fallTimer >= FALL_MS) {
     fallTimer = now;
-    if (canPlace(curX, curY + 1, curPiece)) {
+    if (canPlaceRot(curX, curY + 1, curPiece, curRot)) {
       curY++;
+      // Rotate toward target (one step per fall tick)
+      if (curRot != targetRot) {
+        uint8_t nextRot = (curRot + 1) & 3;
+        if (canPlaceRot(curX, curY, curPiece, nextRot)) {
+          curRot = nextRot;
+        }
+      }
+      // Move horizontally toward target (one step per fall tick)
+      if (curX < targetX && canPlaceRot(curX + 1, curY, curPiece, curRot)) {
+        curX++;
+      } else if (curX > targetX && canPlaceRot(curX - 1, curY, curPiece, curRot)) {
+        curX--;
+      }
     } else {
       lockPiece();
       clearFullRows();
