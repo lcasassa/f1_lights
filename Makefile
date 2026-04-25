@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev
+.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev build-screen upload-screen build-screen-diag upload-screen-diag
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -20,6 +20,10 @@ help:
 	@echo "  make build-test        - Compile hardware test firmware"
 	@echo "  make upload-test       - Build and upload test firmware (auto-discovers port)"
 	@echo "  make monitor-test      - Open serial monitor for test mode"
+	@echo ""
+	@echo "WS2812B SCREEN TEST:"
+	@echo "  make build-screen      - Compile WS2812B matrix test firmware"
+	@echo "  make upload-screen     - Build and upload screen test firmware"
 	@echo ""
 	@echo "DESKTOP SIMULATION (Python):"
 	@echo "  make sim               - Build shared library for Python simulation"
@@ -62,6 +66,24 @@ monitor-test:
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
 	@echo "Opening serial monitor (TEST mode) on $(PORT) at 115200 baud..."
 	pio device monitor --baud 115200 --port $(PORT) --echo
+
+build-screen:
+	@echo "Building WS2812B screen test firmware..."
+	pio run -e screen
+
+upload-screen: build-screen
+	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
+	@echo "Uploading screen test firmware to $(PORT)..."
+	pio run -e screen -t upload --upload-port $(PORT)
+
+build-screen-diag:
+	@echo "Building WS2812B LED chain diagnostic..."
+	pio run -e screen-diag
+
+upload-screen-diag: build-screen-diag
+	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
+	@echo "Uploading LED chain diagnostic to $(PORT)..."
+	pio run -e screen-diag -t upload --upload-port $(PORT)
 
 all: build upload
 	@echo "Done! Open another terminal to monitor:"
