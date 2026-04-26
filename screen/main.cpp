@@ -13,6 +13,11 @@
 #define PLAY_W      12  // playable columns (0-11), last 4 cols reserved
 #define BAR_X       15  // vertical bar on column 15 (far right)
 #define BAR_PIX     PLAY_H  // bar height = play area height
+#define BTN_LEFT    4
+#define BTN_RIGHT   2
+#define BTN_ROTATE  3
+#define BTN_DROP    5
+
 uint16_t linesCleared = 0;  // total lines cleared counter
 // 0b00=0  0b01=85  0b10=170  0b11=255
 uint8_t pixA[LEDS_PER_PANEL];  // pin 6: columns 0-7
@@ -97,7 +102,9 @@ uint8_t nextPiece;   // preview of next piece
 int8_t targetX;    // best X to move toward
 uint8_t targetRot; // best rotation to reach
 unsigned long fallTimer;
-constexpr unsigned long FALL_MS = 50;
+constexpr unsigned long FALL_MS = 300;      // normal fall speed
+constexpr unsigned long FAST_FALL_MS = 30;   // when drop button held
+constexpr unsigned long INPUT_MS = 120;      // button repeat rate
 
 int8_t blk(uint8_t p, uint8_t i, uint8_t a) {
   return (int8_t)pgm_read_byte(&PIECE_BLOCKS[p][i][a]);
@@ -195,8 +202,8 @@ void findBestPlacement(uint8_t piece, int8_t &bestX, uint8_t &bestRot) {
 void spawnPiece() {
   curPiece = nextPiece;
   nextPiece = random(NUM_PIECES);
-  curRot = random(4);
-  // Random start X, clamped to valid range for this rotation
+  curRot = 0;
+  // Start centered
   int8_t bxArr[4], byArr[4];
   getRotatedBlocks(curPiece, curRot, bxArr, byArr);
   int8_t minDx = 127, maxDx = -128;
@@ -204,10 +211,9 @@ void spawnPiece() {
     if (bxArr[i] < minDx) minDx = bxArr[i];
     if (bxArr[i] > maxDx) maxDx = bxArr[i];
   }
-  curX = random(-minDx, PLAY_W - maxDx);
+  uint8_t pieceW = maxDx - minDx + 1;
+  curX = (PLAY_W - pieceW) / 2 - minDx;
   curY = -3;
-  // Compute best target
-  findBestPlacement(curPiece, targetX, targetRot);
   fallTimer = millis();
 }
 
@@ -316,33 +322,88 @@ void render() {
 void setup() {
   pinMode(LED_PIN_A, OUTPUT);
   pinMode(LED_PIN_B, OUTPUT);
+  pinMode(BTN_LEFT, INPUT_PULLUP);
+  pinMode(BTN_RIGHT, INPUT_PULLUP);
+  pinMode(BTN_ROTATE, INPUT_PULLUP);
+  pinMode(BTN_DROP, INPUT_PULLUP);
   clearAll();
   showAll();
+  Serial.begin(115200);
+  Serial.println(F("Tetris starting..."));
+  Serial.println(F("Pins: L=2 R=3 Rot=4 Drop=5"));
   randomSeed(analogRead(A0));
   memset(grid, 0, sizeof(grid));
   nextPiece = random(NUM_PIECES);
   spawnPiece();
 }
 
+unsigned long lastBtnTime[4] = {0,0,0,0};  // debounce per button
+constexpr unsigned long DEBOUNCE_MS = 150;
+bool prevBtn[4] = {false,false,false,false};
+
 void loop() {
   unsigned long now = millis();
-  if (now - fallTimer >= FALL_MS) {
+
+  // Read buttons (LOW = pressed with pull-up)
+  bool btn[4];
+  btn[0] = !digitalRead(BTN_LEFT);
+  btn[1] = !digitalRead(BTN_RIGHT);
+  btn[2] = !digitalRead(BTN_ROTATE);
+  btn[3] = !digitalRead(BTN_DROP);
+
+  // Debug: print when any button pressed
+  static uint8_t prevDebug = 0;
+  uint8_t curDebug = (btn[0]?1:0)|(btn[1]?2:0)|(btn[2]?4:0)|(btn[3]?8:0);
+  if (curDebug != prevDebug) {
+    Serial.print(F("BTN: L="));Serial.print(btn[0]);
+    Serial.print(F(" R="));Serial.print(btn[1]);
+    Serial.print(F(" Rot="));Serial.print(btn[2]);
+    Serial.print(F(" Drop="));Serial.println(btn[3]);
+    prevDebug = curDebug;
+  }
+
+  bool moved = false;
+
+  // Left — repeat while held
+  if (btn[0] && (now - lastBtnTime[0] >= DEBOUNCE_MS)) {
+    if (canPlaceRot(curX - 1, curY, curPiece, curRot)) {
+      curX--;
+      moved = true;
+    }
+    lastBtnTime[0] = now;
+  }
+  if (!btn[0]) lastBtnTime[0] = now - DEBOUNCE_MS; // allow immediate next press
+
+  // Right — repeat while held
+  if (btn[1] && (now - lastBtnTime[1] >= DEBOUNCE_MS)) {
+    if (canPlaceRot(curX + 1, curY, curPiece, curRot)) {
+      curX++;
+      moved = true;
+    }
+    lastBtnTime[1] = now;
+  }
+  if (!btn[1]) lastBtnTime[1] = now - DEBOUNCE_MS;
+
+  // Rotate — edge detect only (press, not hold)
+  if (btn[2] && !prevBtn[2]) {
+    uint8_t newRot = (curRot + 1) & 3;
+    if (canPlaceRot(curX, curY, curPiece, newRot)) {
+      curRot = newRot;
+      moved = true;
+    }
+  }
+  prevBtn[2] = btn[2];
+
+  // Render immediately on any move
+  if (moved) render();
+
+  // Fall speed depends on drop button
+  unsigned long speed = btn[3] ? FAST_FALL_MS : FALL_MS;
+
+  if (now - fallTimer >= speed) {
     fallTimer = now;
     if (canPlaceRot(curX, curY + 1, curPiece, curRot)) {
       curY++;
-      // Rotate toward target (one step per fall tick)
-      if (curRot != targetRot) {
-        uint8_t nextRot = (curRot + 1) & 3;
-        if (canPlaceRot(curX, curY, curPiece, nextRot)) {
-          curRot = nextRot;
-        }
-      }
-      // Move horizontally toward target (one step per fall tick)
-      if (curX < targetX && canPlaceRot(curX + 1, curY, curPiece, curRot)) {
-        curX++;
-      } else if (curX > targetX && canPlaceRot(curX - 1, curY, curPiece, curRot)) {
-        curX--;
-      }
     } else {
       lockPiece();
       clearFullRows();
