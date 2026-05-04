@@ -57,7 +57,7 @@ void tick(bool running) {
   g_wasRunning = true;
 
   uint32_t now = millis();
-  if (now - g_lastTick < 250) return;
+  if (now - g_lastTick < 1000) return;
   g_lastTick = now;
 
   rgb_panel::tickRandomRed();
