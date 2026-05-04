@@ -1,0 +1,96 @@
+name: ESP32 firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'esp32/**'
+      - 'platformio.ini'
+      - '.github/workflows/esp32-firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create/update releases
+
+concurrency:
+  group: esp32-firmware
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Render WiFi credentials header
+        env:
+          WIFI_SSID:     ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+          OTA_HOSTNAME:  ${{ secrets.OTA_HOSTNAME }}
+          OTA_PASSWORD:  ${{ secrets.OTA_PASSWORD }}
+        run: |
+          : "${OTA_HOSTNAME:=f1-esp32}"
+          : "${OTA_PASSWORD:=f1ota}"
+          if [ -z "${WIFI_SSID:-}" ] || [ -z "${WIFI_PASSWORD:-}" ]; then
+            echo "::error::WIFI_SSID and WIFI_PASSWORD secrets must be set in repo settings."
+            exit 1
+          fi
+          cat > esp32/wifi_credentials.h <<EOF
+          #pragma once
+          #define WIFI_SSID     "${WIFI_SSID}"
+          #define WIFI_PASSWORD "${WIFI_PASSWORD}"
+          #define OTA_HOSTNAME  "${OTA_HOSTNAME}"
+          #define OTA_PASSWORD  "${OTA_PASSWORD}"
+          EOF
+
+      - name: Compute version
+        id: ver
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DFIRMWARE_VERSION=\"${{ steps.ver.outputs.sha }}\" -DOTA_REPO=\"${{ github.repository }}\"
+        run: pio run -e esp32-c3-supermini
+
+      - name: Stage release assets
+        run: |
+          mkdir -p release
+          cp .pio/build/esp32-c3-supermini/firmware.bin release/firmware.bin
+          echo -n "${{ steps.ver.outputs.sha }}" > release/version.txt
+          ls -la release/
+          sha256sum release/*
+
+      - name: Publish rolling 'firmware-latest' release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: firmware-latest
+          name: ESP32 firmware (latest)
+          body: |
+            Built from commit `${{ github.sha }}` on `${{ github.ref_name }}`.
+
+            - `firmware.bin` — flashable image for ESP32-C3 Super Mini
+            - `version.txt` — short SHA of this build
+
+            The on-device boot loader fetches `version.txt` and self-updates
+            from this release.
+          files: |
+            release/firmware.bin
+            release/version.txt
+          make_latest: 'true'
+          prerelease: false
+

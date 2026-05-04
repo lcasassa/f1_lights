@@ -48,9 +48,5 @@ Thumbs.db
 # PlatformIO cache
 .piocache
 
-# Web (Vue)
-web/node_modules/
-web/dist/
-web/public/f1sim.js
-web/public/f1sim.wasm
-
+# Local secrets (WiFi creds for ESP32 OTA)
+esp32/wifi_credentials.h

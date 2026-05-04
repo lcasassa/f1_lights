@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev build-screen upload-screen build-screen-diag upload-screen-diag
+.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev build-screen upload-screen build-screen-diag upload-screen-diag build-screen-dino upload-screen-dino build-esp32 upload-esp32 monitor-esp32 upload-esp32-ota upload-esp32-ota-full upload-esp32-segscan
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -7,6 +7,10 @@ PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
 ifeq ($(PORT),)
 PORT_ERROR = "No Arduino found. Connect your board and try again, or specify: make upload PORT=/dev/cu.usbserial-XXXX"
 endif
+
+# ESP32-C3 Super Mini exposes a native USB CDC port (usbmodem*)
+ESP32_PORT ?= $(shell ls /dev/cu.usbmodem* 2>/dev/null | head -n 1)
+ESP32_PORT_ERROR = "No ESP32-C3 found. Connect the board (hold BOOT if needed) or specify: make upload-esp32 ESP32_PORT=/dev/cu.usbmodemXXXX"
 
 help:
 	@echo "Arduino Pro Mini F1 Lights - Makefile targets:"
@@ -24,6 +28,15 @@ help:
 	@echo "WS2812B SCREEN TEST:"
 	@echo "  make build-screen      - Compile WS2812B matrix test firmware"
 	@echo "  make upload-screen     - Build and upload screen test firmware"
+	@echo "  make build-screen-dino - Compile Dino game firmware"
+	@echo "  make upload-screen-dino- Build and upload Dino game firmware"
+	@echo ""
+	@echo "ESP32-C3 SUPER MINI:"
+	@echo "  make build-esp32       - Compile ESP32-C3 blink firmware"
+	@echo "  make upload-esp32      - Build and upload ESP32-C3 blink firmware"
+	@echo "  make monitor-esp32     - Open serial monitor for ESP32-C3"
+	@echo "  make upload-esp32-ota  - Push firmware over WiFi (lean: no GitHub OTA)"
+	@echo "  make upload-esp32-ota-full - Push firmware over WiFi (incl. GitHub OTA)"
 	@echo ""
 	@echo "DESKTOP SIMULATION (Python):"
 	@echo "  make sim               - Build shared library for Python simulation"
@@ -84,6 +97,72 @@ upload-screen-diag: build-screen-diag
 	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
 	@echo "Uploading LED chain diagnostic to $(PORT)..."
 	pio run -e screen-diag -t upload --upload-port $(PORT)
+
+build-screen-dino:
+	@echo "Building Dino game firmware..."
+	pio run -e screen-dino
+
+upload-screen-dino: build-screen-dino
+	@if [ -z "$(PORT)" ]; then echo $(PORT_ERROR); exit 1; fi
+	@echo "Uploading Dino game firmware to $(PORT)..."
+	pio run -e screen-dino -t upload --upload-port $(PORT)
+
+# ── ESP32-C3 Super Mini ─────────────────────────────────────────────────────
+build-esp32:
+	@echo "Building ESP32-C3 Super Mini blink firmware..."
+	pio run -e esp32-c3-supermini
+
+upload-esp32: build-esp32
+	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
+	@echo "Uploading ESP32-C3 firmware to $(ESP32_PORT)..."
+	pio run -e esp32-c3-supermini -t upload --upload-port $(ESP32_PORT)
+
+monitor-esp32:
+	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
+	@echo "Opening serial monitor on $(ESP32_PORT) at 115200 baud..."
+	pio device monitor --baud 115200 --port $(ESP32_PORT) --echo
+
+# Push firmware to the ESP32-C3 over WiFi via ArduinoOTA / mDNS.
+#
+# Two flavors:
+#   make upload-esp32-ota          → lean image (no GitHub self-updater),
+#                                    fastest dev iteration.
+#   make upload-esp32-ota-full     → full image incl. GitHub self-updater.
+#
+# Speed tips:
+#   - Override OTA_HOST with the device's IP to skip the mDNS lookup
+#     (saves 1–3 s on macOS):     make upload-esp32-ota OTA_HOST=192.168.1.42
+#   - The lean env (default) ships ~100–150 KB less binary, so the WiFi
+#     transfer + flash-write step is ~15–20 % faster on top of that.
+OTA_HOST ?= f1-esp32.local
+
+# Resolve mDNS once on the make host (dns-sd is built-in on macOS); falls
+# back silently to letting espota.py do the lookup if resolution fails.
+# Override by passing OTA_HOST=<ip> on the command line.
+ifeq ($(OTA_HOST),f1-esp32.local)
+  RESOLVED_OTA_HOST := $(shell dns-sd -t 2 -G v4 $(OTA_HOST) 2>/dev/null \
+      | awk '/IPv4/ {print $$6; exit}')
+  ifneq ($(RESOLVED_OTA_HOST),)
+    OTA_HOST := $(RESOLVED_OTA_HOST)
+  endif
+endif
+
+upload-esp32-ota:
+	@echo "OTA upload (lean) to $(OTA_HOST) ..."
+	pio run -e esp32-c3-supermini-ota-fast -t upload --upload-port $(OTA_HOST)
+
+upload-esp32-ota-full:
+	@echo "OTA upload (full, w/ GitHub self-updater) to $(OTA_HOST) ..."
+	pio run -e esp32-c3-supermini-ota -t upload --upload-port $(OTA_HOST)
+
+# Flash the segment-bit scanner over USB: lights one HT16K33 bit at a time
+# on Dig1 so you can identify which physical segment each bit drives.
+# Watch the panel and `make monitor-esp32` simultaneously to answer the
+# binary-search prompts (y/n/r/q).
+upload-esp32-segscan:
+	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
+	@echo "Segment-scan upload (USB) to $(ESP32_PORT) ..."
+	pio run -e esp32-c3-supermini-segscan -t upload --upload-port $(ESP32_PORT)
 
 all: build upload
 	@echo "Done! Open another terminal to monitor:"

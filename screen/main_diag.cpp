@@ -16,32 +16,6 @@ void setup() {
 
   Serial.println(F("\n=== LED Chain Diagnostic (2 screens) ==="));
 
-  Serial.println(F("Walking Screen A..."));
-  for (uint16_t i = 0; i < NUM_LEDS; i++) {
-    ws2812_onePixel(LED_PIN_A, i, NUM_LEDS, BRIGHTNESS, BRIGHTNESS, BRIGHTNESS);
-    ws2812_black(LED_PIN_B, NUM_LEDS);
-    if (i % 8 == 0) {
-      Serial.print(F("  A row ")); Serial.print(i / 8);
-      Serial.print(F("  (LED ")); Serial.print(i); Serial.println(F(")"));
-    }
-    delay(10);
-  }
-
-  Serial.println(F("Walking Screen B..."));
-  for (uint16_t i = 0; i < NUM_LEDS; i++) {
-    ws2812_black(LED_PIN_A, NUM_LEDS);
-    ws2812_onePixel(LED_PIN_B, i, NUM_LEDS, BRIGHTNESS, BRIGHTNESS, BRIGHTNESS);
-    if (i % 8 == 0) {
-      Serial.print(F("  B row ")); Serial.print(i / 8);
-      Serial.print(F("  (LED ")); Serial.print(i); Serial.println(F(")"));
-    }
-    delay(10);
-  }
-
-  ws2812_black(LED_PIN_A, NUM_LEDS);
-  ws2812_black(LED_PIN_B, NUM_LEDS);
-  delay(250);
-
   Serial.println(F("All red..."));
   ws2812_solid(LED_PIN_A, 0, BRIGHTNESS, 0, NUM_LEDS);
   ws2812_solid(LED_PIN_B, 0, BRIGHTNESS, 0, NUM_LEDS);
@@ -65,15 +39,47 @@ void setup() {
   Serial.println(F("\n=== Diagnostic complete ==="));
 }
 
-void loop() {
-  static bool on = false;
-  on = !on;
-  if (on) {
-    ws2812_onePixel(LED_PIN_A, 0, NUM_LEDS, BRIGHTNESS, 0, 0);
-    ws2812_onePixel(LED_PIN_B, 0, NUM_LEDS, 0, 0, BRIGHTNESS);
-  } else {
-    ws2812_black(LED_PIN_A, NUM_LEDS);
-    ws2812_black(LED_PIN_B, NUM_LEDS);
+// HSV to RGB (h 0-255, returns scaled by BRIGHTNESS)
+static void hsvToRgb(uint8_t h, uint8_t &r, uint8_t &g, uint8_t &b) {
+  uint8_t region = h / 43;
+  uint8_t rem = (h % 43) * 6;
+  switch (region) {
+    case 0: r=255; g=rem;   b=0;     break;
+    case 1: r=255-rem; g=255; b=0;   break;
+    case 2: r=0;   g=255; b=rem;     break;
+    case 3: r=0;   g=255-rem; b=255; break;
+    case 4: r=rem; g=0;   b=255;     break;
+    default:r=255; g=0;   b=255-rem; break;
   }
-  delay(500);
+  r = (uint16_t)r * BRIGHTNESS / 255;
+  g = (uint16_t)g * BRIGHTNESS / 255;
+  b = (uint16_t)b * BRIGHTNESS / 255;
+}
+
+// Temp buffer for one strip (3 bytes per LED — fits in RAM for 256 LEDs? No, 768 bytes each.)
+// Send pixel-by-pixel instead to save RAM.
+static void rainbowStrip(uint8_t pin, uint8_t offset) {
+  volatile uint8_t *port = portOutputRegister(digitalPinToPort(pin));
+  uint8_t pinMask = digitalPinToBitMask(pin);
+  uint8_t hi = *port |  pinMask;
+  uint8_t lo = *port & ~pinMask;
+  cli();
+  for (uint16_t i = 0; i < NUM_LEDS; i++) {
+    uint8_t h = offset + (uint16_t)i * 256 / NUM_LEDS;
+    uint8_t r, g, b;
+    hsvToRgb(h, r, g, b);
+    ws2812_sendByte(port, hi, lo, g);
+    ws2812_sendByte(port, hi, lo, r);
+    ws2812_sendByte(port, hi, lo, b);
+  }
+  sei();
+  delayMicroseconds(80);
+}
+
+void loop() {
+  static uint8_t offset = 0;
+  rainbowStrip(LED_PIN_A, offset);
+  rainbowStrip(LED_PIN_B, offset + 128);  // opposite hue on panel B
+  offset += 2;
+  delay(30);
 }
