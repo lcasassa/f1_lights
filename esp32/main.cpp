@@ -205,77 +205,16 @@ namespace seg7 {
   static void clear(const Map &m);
 }
 
-// Startup self-test:
-//   1. For each color (R → G → B):
-//        a) "Chase": light RGB LEDs one at a time, 50 ms per LED, accumulating
-//           (so by the end all 10 are lit in that color). While the chase
-//           runs, the two 5-digit 7-seg displays cycle through the self-test
-//           frames in lockstep.
-//        b) Hold the all-on state briefly.
-//        c) Blink all-on / all-off three times (the original behaviour).
+// Startup self-test: one quick all-on flash — RGB LEDs red, both 5-digit
+// 7-seg displays showing "8.8.8.8.8." (every segment + DP lit) — then
+// blank everything.
 static void startupColorBlink() {
-  struct Phase { bool r, g, b; const char *name; const char *segFrame; };
-  static const Phase phases[3] = {
-    {true,  false, false, "RED",   "8.8.8.8.8."},
-    {false, true,  false, "GREEN", "2.2222."   },
-    {false, false, true,  "BLUE",  "55.5.5.5"  },
-  };
-  constexpr uint16_t kChaseStepMs = 150;   // per-LED reveal during the chase
-  constexpr uint16_t kHoldMs      = 400;  // dwell with all 10 LEDs lit
-  constexpr uint8_t  kBlinks      = 3;
-  constexpr uint16_t kBlinkOnMs   = 250;
-  constexpr uint16_t kBlinkOffMs  = 250;
-  constexpr uint16_t kGapMs       = 300;  // pause between colors
+  htSetAllRgb(true, false, false);            // red on
+  seg7::writeText(seg7::kTop, "8.8.8.8.8.");
+  seg7::writeText(seg7::kBot, "8.8.8.8.8.");
+  delay(50);
 
-  for (const auto &p : phases) {
-    Serial.printf("startup: %s chase + display frame '%s'\n", p.name, p.segFrame);
-
-    // Show this color's display frame for the duration of the chase.
-    seg7::writeText(seg7::kTop, p.segFrame);
-    seg7::writeText(seg7::kBot, p.segFrame);
-
-    // ── (a) chase: reveal LEDs 1..N one at a time ───────────────────────
-    uint16_t rgbBits[4] = {0, 0, 0, 0};
-    uint16_t rgbMask[4] = {0, 0, 0, 0};
-    // Pre-compute the per-digit RGB-controlled bit union so we can mask
-    // correctly under RGB_ACTIVE_LOW.
-    for (uint8_t i = 0; i < kNumRgbLeds; i++) {
-      const RgbLed &led = kRgbLeds[i];
-      rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
-    }
-    for (uint8_t i = 0; i < kNumRgbLeds; i++) {
-      const RgbLed &led = kRgbLeds[i];
-      uint16_t colorMask = (p.r ? led.rMask : 0)
-                         | (p.g ? led.gMask : 0)
-                         | (p.b ? led.bMask : 0);
-      rgbBits[led.digit] |= colorMask;
-      // Push the two RGB-bearing digits (the others are seg7-only).
-      for (uint8_t d = 0; d < 4; d++) {
-        if (rgbMask[d] == 0) continue;
-        uint16_t segs = rgbBits[d];
-#if RGB_ACTIVE_LOW
-        segs = (~segs) & rgbMask[d];
-#endif
-        htWriteDigit(d, segs);
-      }
-      delay(kChaseStepMs);
-    }
-
-    // ── (b) hold all-on briefly ─────────────────────────────────────────
-    delay(kHoldMs);
-
-    // ── (c) blink three times ───────────────────────────────────────────
-    for (uint8_t i = 0; i < kBlinks; i++) {
-      htSetAllRgb(false, false, false);
-      delay(kBlinkOffMs);
-      htSetAllRgb(p.r, p.g, p.b);
-      delay(kBlinkOnMs);
-    }
-    htSetAllRgb(false, false, false);
-    delay(kGapMs);
-  }
-
-  // Leave the 7-seg displays clear at the end so loop()'s idle state is clean.
+  htSetAllRgb(false, false, false);           // off
   seg7::clear(seg7::kTop);
   seg7::clear(seg7::kBot);
 }
@@ -354,40 +293,24 @@ static inline bool anyButtonPressed() {
 
 // ── OTA progress visualisation ─────────────────────────────────────────────
 // Map a 0..100 percent value to the 10-LED panel:
-//   - Each LED represents 10 percentage points; "fully white" = that 10%
+//   - Each LED represents 10 percentage points; "fully red" = that 10%
 //     slice is complete.
 //   - LEDs fill in from the outside in: physical order
 //     1 → 10 → 2 → 9 → 3 → 8 → 4 → 7 → 5 → 6.
-//   - The in-progress LED (the one currently between 0 % and 10 % of its
-//     slice) cycles through a fixed 10-entry palette, one colour per 1 %
-//     of overall progress, ending on white.
+//   - The in-progress LED toggles red on/off on every 1% so there's a
+//     visible heartbeat between the coarse 10% steps.
 static constexpr uint8_t kOtaFillOrder[kNumRgbLeds] = {
   0, 9, 1, 8, 2, 7, 3, 6, 4, 5,   // physical LED index (0-based)
-};
-
-// Per-1 % colour palette for the in-progress LED. Boolean R/G/B because the
-// HT16K33 has no per-segment PWM; the last entries duplicate "white" so
-// the LED settles on white before the next one starts filling.
-struct OtaColor { bool r, g, b; };
-static constexpr OtaColor kOtaSubsteps[10] = {
-  {false, false, false}, // 0 — off
-  {true,  false, false}, // 1 — red
-  {true,  true,  false}, // 2 — yellow
-  {true,  false, false}, // 3 — red
-  {true,  true,  false}, // 4 — yellow
-  {false, true,  false}, // 5 — green
-  {false, true,  true},  // 6 — cyan
-  {false, false, true},  // 7 — blue
-  {true,  false, true},  // 8 — magenta
-  {true,  true,  true},  // 9 — white
 };
 
 // Render `percent` (clamped to 0..100) onto the RGB panel.
 static void showOtaProgress(int percent) {
   if (percent < 0)   percent = 0;
   if (percent > 100) percent = 100;
-  const uint8_t filled    = (uint8_t)(percent / 10);   // 0..10 white LEDs
+  const uint8_t filled    = (uint8_t)(percent / 10);   // 0..10 lit LEDs
   const uint8_t remainder = (uint8_t)(percent % 10);   // 0..9 substep
+  // Heartbeat: in-progress LED is red on odd 1%-buckets, off on even.
+  const bool inProgressOn = (remainder & 1u) != 0;
 
   // Per-digit accumulators.
   uint16_t rgbBits[4] = {0, 0, 0, 0};
@@ -399,18 +322,11 @@ static void showOtaProgress(int percent) {
 
   for (uint8_t slot = 0; slot < kNumRgbLeds; slot++) {
     const RgbLed &led = kRgbLeds[kOtaFillOrder[slot]];
-    bool r, g, b;
-    if (slot < filled) {
-      r = g = b = true;                          // fully white
-    } else if (slot == filled) {
-      const OtaColor &c = kOtaSubsteps[remainder];
-      r = c.r; g = c.g; b = c.b;                 // in-progress color
-    } else {
-      r = g = b = false;                         // not started yet
-    }
-    if (r) rgbBits[led.digit] |= led.rMask;
-    if (g) rgbBits[led.digit] |= led.gMask;
-    if (b) rgbBits[led.digit] |= led.bMask;
+    bool red;
+    if (slot < filled)        red = true;            // already filled
+    else if (slot == filled)  red = inProgressOn;    // blinking heartbeat
+    else                      red = false;           // not started yet
+    if (red) rgbBits[led.digit] |= led.rMask;
   }
 
   for (uint8_t d = 0; d < 4; d++) {
@@ -672,7 +588,7 @@ static void setupOta() {
     })
     .onEnd([]() {
       Serial.println("\nOTA: done");
-      showOtaProgress(100);               // all white before reboot
+      showOtaProgress(100);               // all red before reboot
       otaInProgress = false;
     })
     .onProgress([](unsigned int p, unsigned int t) {
@@ -812,7 +728,7 @@ void setup() {
   runSegmentScan();             // never returns; for bit-mapping debug
 #endif
   startupBeep();                // audible "I'm alive"
-  startupColorBlink();          // R / G / B chase + 7-seg frames + blink
+  startupColorBlink();          // single all-red + 8.8.8.8.8. flash
   connectWifi();
   checkAndUpdateFromGithub();   // may reboot into new firmware
   setupOta();
