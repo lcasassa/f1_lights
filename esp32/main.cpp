@@ -38,10 +38,19 @@ void setup() {
 #endif
 
   animation::startupBlink();
-  wifi_ota::connectWifi();
-  wifi_ota::checkAndUpdateFromGithub();   // may reboot into new firmware
-  wifi_ota::setupArduinoOta();
   animation::startupBlink();
+
+  // Sample both buttons NOW (before WiFi association eats 30 s of wall
+  // clock) to decide whether to allow the provisioning portal when the
+  // saved credentials don't connect. Holding A+B at boot arms it.
+  const bool provisioningAllowed = peripherals::bothButtonsPressed();
+  if (provisioningAllowed) {
+    Serial.println("boot: A+B held, provisioning portal armed if STA fails");
+  }
+
+  wifi_ota::connectOrProvision(provisioningAllowed);
+  wifi_ota::checkAndUpdateFromGithub();
+  wifi_ota::setupArduinoOta();
 }
 
 void loop() {
@@ -51,10 +60,14 @@ void loop() {
     animation::tick(peripherals::anyButtonPressed());
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
+  // Auto-reconnect only in STA mode; the provisioning portal manages its
+  // own lifecycle and a reconnect attempt would tear it down.
+  if (!wifi_ota::inApMode && WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi: dropped, reconnecting...");
-    wifi_ota::connectWifi();
+    wifi_ota::connectOrProvision(/*provisioningAllowed=*/false);
     wifi_ota::setupArduinoOta();
   }
 }
+
+
 

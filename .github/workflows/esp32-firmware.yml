@@ -39,21 +39,16 @@ jobs:
 
       - name: Render WiFi credentials header
         env:
-          WIFI_SSID:     ${{ secrets.WIFI_SSID }}
-          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
           OTA_HOSTNAME:  ${{ secrets.OTA_HOSTNAME }}
           OTA_PASSWORD:  ${{ secrets.OTA_PASSWORD }}
         run: |
           : "${OTA_HOSTNAME:=f1-esp32}"
           : "${OTA_PASSWORD:=f1ota}"
-          if [ -z "${WIFI_SSID:-}" ] || [ -z "${WIFI_PASSWORD:-}" ]; then
-            echo "::error::WIFI_SSID and WIFI_PASSWORD secrets must be set in repo settings."
-            exit 1
-          fi
+          # WiFi SSID/password are NOT baked in — the device asks for them
+          # via the on-device provisioning portal (AP fallback when both
+          # buttons are held at boot) and stores them in NVS.
           cat > esp32/wifi_credentials.h <<EOF
           #pragma once
-          #define WIFI_SSID     "${WIFI_SSID}"
-          #define WIFI_PASSWORD "${WIFI_PASSWORD}"
           #define OTA_HOSTNAME  "${OTA_HOSTNAME}"
           #define OTA_PASSWORD  "${OTA_PASSWORD}"
           EOF

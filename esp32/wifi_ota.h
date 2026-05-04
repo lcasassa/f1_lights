@@ -9,8 +9,21 @@ namespace wifi_ota {
 // uses this to suppress its own RGB animation.
 extern volatile bool inProgress;
 
-// Connect to the configured WiFi network. Reboots after a 30 s timeout.
-void connectWifi();
+// True while the device is sitting in the SoftAP provisioning portal
+// (no STA connectivity). The main loop uses this to skip its
+// WiFi-reconnect logic.
+extern bool inApMode;
+
+// Try to associate using the credentials stored in NVS by a previous
+// successful connect (or by the provisioning portal). Returns true on
+// success, false after a 30 s timeout. No reboot.
+bool connectWifi();
+
+// Convenience: try connectWifi(); on failure, if `provisioningAllowed`
+// is true, bring up the SoftAP + captive-portal webserver so the user
+// can pick an SSID and type the password (saved to NVS for next boot).
+// On any other failure, reboots.
+void connectOrProvision(bool provisioningAllowed);
 
 // Start the ArduinoOTA receiver (mDNS hostname + password from
 // wifi_credentials.h). Call after WiFi is up.
@@ -25,4 +38,6 @@ void checkAndUpdateFromGithub();
 void handleOta();
 
 }  // namespace wifi_ota
+
+
 

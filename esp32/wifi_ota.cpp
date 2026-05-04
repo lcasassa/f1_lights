@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <WiFiManager.h>
 
 #ifndef DISABLE_GITHUB_OTA
 #include <HTTPClient.h>
@@ -30,23 +31,73 @@
 namespace wifi_ota {
 
 volatile bool inProgress = false;
+bool          inApMode   = false;
 
-void connectWifi() {
+bool connectWifi() {
+  WiFi.persistent(true);          // store SSID/PSK in NVS for next boot
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(OTA_HOSTNAME);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin();                   // uses last-saved creds from NVS
 
-  Serial.printf("WiFi: connecting to '%s'", WIFI_SSID);
+  Serial.print("WiFi: connecting using saved credentials");
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print('.');
     delay(200);
     if (millis() - start > 30000) {
-      Serial.println("\nWiFi: timeout, restarting...");
-      ESP.restart();
+      Serial.println("\nWiFi: STA timeout");
+      return false;
     }
   }
   Serial.printf("\nWiFi: connected, IP=%s\n", WiFi.localIP().toString().c_str());
+  return true;
+}
+
+// Bring up the SoftAP + captive-portal webserver so the user can pick an
+// SSID and type the password. Blocks until the user submits valid creds
+// (which WiFiManager then writes to NVS) or the portal times out.
+static void runProvisioningPortal() {
+  Serial.printf("WiFi: starting provisioning portal — join SSID '%s'"
+                " (pwd '%s'), then visit http://192.168.4.1/\n",
+                OTA_HOSTNAME, OTA_PASSWORD);
+
+  // Visual cue: all RGB LEDs solid blue while the portal is open.
+  rgb_panel::setAll(false, false, true);
+  inApMode = true;
+
+  WiFiManager wm;
+  wm.setHostname(OTA_HOSTNAME);
+  wm.setConfigPortalTimeout(300);   // 5 min, then reboot
+  wm.setConnectTimeout(30);         // attempt-to-join timeout per submitted creds
+  wm.setBreakAfterConfig(true);     // exit portal as soon as creds are saved
+
+  bool ok = (strlen(OTA_PASSWORD) >= 8)
+              ? wm.startConfigPortal(OTA_HOSTNAME, OTA_PASSWORD)
+              : wm.startConfigPortal(OTA_HOSTNAME);
+
+  if (!ok) {
+    Serial.println("WiFi: portal timed out without valid creds, rebooting");
+    delay(200);
+    ESP.restart();
+  }
+
+  Serial.printf("WiFi: provisioned, IP=%s\n", WiFi.localIP().toString().c_str());
+  inApMode = false;
+  rgb_panel::blank();
+}
+
+void connectOrProvision(bool provisioningAllowed) {
+  if (connectWifi()) {
+    inApMode = false;
+    return;
+  }
+  if (provisioningAllowed) {
+    runProvisioningPortal();
+    return;
+  }
+  Serial.println("WiFi: provisioning portal not armed, restarting...");
+  delay(200);
+  ESP.restart();
 }
 
 void setupArduinoOta() {
@@ -91,8 +142,10 @@ void setupArduinoOta() {
     });
 
   ArduinoOTA.begin();
-  Serial.printf("OTA: ready at %s.local (%s)\n",
-                OTA_HOSTNAME, WiFi.localIP().toString().c_str());
+  IPAddress ip = inApMode ? WiFi.softAPIP() : WiFi.localIP();
+  Serial.printf("OTA: ready at %s.local (%s%s)\n",
+                OTA_HOSTNAME, ip.toString().c_str(),
+                inApMode ? ", AP mode" : "");
 }
 
 void handleOta() {
@@ -129,6 +182,10 @@ String fetchLatestVersion() {
 }  // namespace
 
 void checkAndUpdateFromGithub() {
+  if (inApMode) {
+    Serial.println("OTA-check: in AP fallback, skipping GitHub self-update");
+    return;
+  }
   Serial.printf("OTA-check: running version '%s'\n", FIRMWARE_VERSION);
   String latest = fetchLatestVersion();
   if (latest.isEmpty()) {
@@ -191,4 +248,9 @@ void checkAndUpdateFromGithub() {
 #endif
 
 }  // namespace wifi_ota
+
+
+
+
+
 

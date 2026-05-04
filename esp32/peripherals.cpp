@@ -34,5 +34,10 @@ bool anyButtonPressed() {
   return (digitalRead(BTN_A_PIN) == LOW) || (digitalRead(BTN_B_PIN) == LOW);
 }
 
+bool bothButtonsPressed() {
+  return (digitalRead(BTN_A_PIN) == LOW) && (digitalRead(BTN_B_PIN) == LOW);
+}
+
 }  // namespace peripherals
+
 
