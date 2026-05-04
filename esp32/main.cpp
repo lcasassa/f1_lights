@@ -600,9 +600,12 @@ static inline void checkAndUpdateFromGithub() {
 // Forward declarations for the 5-digit 7-seg helpers (definitions live in
 // the seg7 namespace at the bottom of the file).
 namespace seg7 {
-  static void writeText(const char *s);
-  static void printFloat(float value);
-  static void clear();
+  struct Map;
+  extern const Map kTop;
+  extern const Map kBot;
+  static void writeText(const Map &m, const char *s);
+  static void printFloat(const Map &m, float value);
+  static void clear(const Map &m);
 }
 
 void setup() {
@@ -617,16 +620,19 @@ void setup() {
   runSegmentScan();             // never returns; for bit-mapping debug
 #endif
   startupColorBlink();          // R / G / B self-test
-  // 7-seg self-test, three frames so every segment + every DP is exercised:
-  //   1) "8.8.8.8.8."  → every segment + every DP on (all 5 cells lit full)
-  //   2) "2.2.222"     → digit '2' on every cell, DP on the leftmost 2
-  //   3) "555.5.5."    → digit '5' on every cell, DP on the rightmost 3
-  // Frames 2+3 cover the same 5 DPs that frame 1 lit, split 2 + 3.
-  seg7::writeText("8.8.8.8.8.");
+  // 7-seg self-test, three frames so every segment + every DP is exercised
+  // on BOTH 5-digit displays (they share COMs but use disjoint ROW bits):
+  //   1) "8.8.8.8.8."  → every segment + every DP on
+  //   2) "2.2222."     → digit '2' on every cell, DP on the leftmost 2
+  //   3) "55.5.5.5"    → digit '5' on every cell, DP on the rightmost 3
+  seg7::writeText(seg7::kTop, "8.8.8.8.8.");
+  seg7::writeText(seg7::kBot, "8.8.8.8.8.");
   delay(700);
-  seg7::writeText("2.2222.");
+  seg7::writeText(seg7::kTop, "2.2222.");
+  seg7::writeText(seg7::kBot, "2.2222.");
   delay(700);
-  seg7::writeText("55.5.5.5");
+  seg7::writeText(seg7::kTop, "55.5.5.5");
+  seg7::writeText(seg7::kBot, "55.5.5.5");
   delay(700);
   connectWifi();
   checkAndUpdateFromGithub();   // may reboot into new firmware
@@ -637,27 +643,36 @@ void loop() {
   ArduinoOTA.handle();
 
   if (!otaInProgress) {
-    // Rainbow sweep on every RGB LED (R→Y→G→C→B→M→…), 250 ms/step.
-    static const uint8_t rainbow[6][3] = {
-      {1, 0, 0}, // red
-      {1, 1, 0}, // yellow
-      {0, 1, 0}, // green
-      {0, 1, 1}, // cyan
-      {0, 0, 1}, // blue
-      {1, 0, 1}, // magenta
-    };
-    static uint32_t lastHue = 0;
-    static uint8_t hueIdx = 0;
+    // Random per-LED red flicker: every 250 ms, each of the 10 RGB LEDs
+    // independently picks ON or OFF (red only). Other colors stay dark.
+    static uint32_t lastTick = 0;
     static float segCounter = 0;
     uint32_t now = millis();
-    if (now - lastHue >= 250) {
-      lastHue = now;
-      hueIdx = (hueIdx + 1) % 6;
-      const uint8_t *c = rainbow[hueIdx];
-      htSetAllRgb(c[0], c[1], c[2]);
-      // Tick the 7-seg counter in lockstep with the rainbow: each new
-      // color shows the next number on the 5-digit panel.
-      seg7::printFloat(segCounter);
+    if (now - lastTick >= 250) {
+      lastTick = now;
+
+      // Build per-digit segment word: union of red masks for LEDs the RNG
+      // picked, with the rest of the RGB-controlled bits forced low.
+      uint16_t rgbBits[4] = {0, 0, 0, 0};
+      uint16_t rgbMask[4] = {0, 0, 0, 0};
+      for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+        const RgbLed &led = kRgbLeds[i];
+        rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
+        if (random(0, 2)) rgbBits[led.digit] |= led.rMask;   // 50/50
+      }
+      for (uint8_t d = 0; d < 4; d++) {
+        if (rgbMask[d] == 0) continue;
+        uint16_t segs = rgbBits[d];
+#if RGB_ACTIVE_LOW
+        segs = (~segs) & rgbMask[d];
+#endif
+        htWriteDigit(d, segs);
+      }
+
+      // Tick the 7-seg counter in lockstep with the LED flicker. Mirror
+      // the same number to both displays.
+      seg7::printFloat(seg7::kTop, segCounter);
+      seg7::printFloat(seg7::kBot, segCounter);
       // Random increment in [minInc, 0.1]. minInc grows with the integer
       // part so the smallest step is always at least one visible LSB on
       // the 5-digit panel (e.g. value=12 → 3 fractional digits → min 0.001).
@@ -682,35 +697,40 @@ void loop() {
   }
 }
 
-// ── 5-digit 7-segment display ──────────────────────────────────────────────
-// Wired to the same HT16K33 chip, sharing ROW lines with the 14-seg
-// backpack but using its own COM lines. Bit map confirmed with the segscan
-// (see chat log): every 7-seg segment found on a single ROW, regardless of
-// which COM the character lives on.
+// ── 5-digit 7-segment displays ─────────────────────────────────────────────
+// Two physical 5-digit 7-seg modules wired to the same HT16K33. They share
+// the same 5 COM lines (one digit-select per character cell) but use
+// disjoint sets of ROW lines for their segments, so we can light any
+// pattern on each independently — provided every write is *masked* so it
+// only touches that display's bits and leaves the other display alone.
 //
-//   segment  ROW (bit)
-//     A   →  ROW 5   (also F on the 14-seg — different COM, no conflict)
-//     B   →  ROW 9   (also I on the 14-seg)
-//     C   →  ROW 0   (also A on the 14-seg)
-//     D   →  ROW10   (also J on the 14-seg)
-//     E   →  ROW 1   (also B on the 14-seg)
-//     F   →  ROW 8   (also H on the 14-seg)
-//     G   →  ROW 6   (also G1 on the 14-seg)
-//     DP  →  ROW 2   (also C on the 14-seg)
+// kTop = the original "top" panel:
+//   A→ROW5, B→ROW9, C→ROW0, D→ROW10, E→ROW1, F→ROW8, G→ROW6, DP→ROW2
+//   (these ROW lines double as F/I/A/J/B/H/G1/C on the 14-seg backpack —
+//    no conflict because the 14-seg uses different COMs.)
+//
+// kBot = the second panel, wired to the leftover 14-seg ROW pads
+// (E/M/L/K/G2/D/DP/C) plus ROW15:
+//   A→ROW3, B→ROW15, C→ROW11, D→ROW13, E→ROW12, F→ROW14, G→ROW4, DP→ROW7
 namespace seg7 {
 
-static constexpr uint16_t A  = 1u << 5;
-static constexpr uint16_t B  = 1u << 9;
-static constexpr uint16_t C  = 1u << 0;
-static constexpr uint16_t D  = 1u << 10;
-static constexpr uint16_t E  = 1u << 1;
-static constexpr uint16_t F  = 1u << 8;
-static constexpr uint16_t G  = 1u << 6;
-static constexpr uint16_t DP = 1u << 2;
+struct Map {
+  uint16_t A, B, C, D, E, F, G, DP;
+  // Union of all controlled bits (used as the clear-mask on writes).
+  constexpr uint16_t mask() const { return A | B | C | D | E | F | G | DP; }
+};
 
-// Left-to-right COM index for each character cell. Confirmed with the
-// segscan by lighting segment A (bit 5) on each candidate COM and noting
-// which physical digit lit up:
+const Map kTop = {
+  /*A */ 1u << 5,  /*B */ 1u << 9,  /*C */ 1u << 0,  /*D */ 1u << 10,
+  /*E */ 1u << 1,  /*F */ 1u << 8,  /*G */ 1u << 6,  /*DP*/ 1u << 2,
+};
+
+const Map kBot = {
+  /*A */ 1u << 3,  /*B */ 1u << 15, /*C */ 1u << 11, /*D */ 1u << 13,
+  /*E */ 1u << 12, /*F */ 1u << 14, /*G */ 1u << 4,  /*DP*/ 1u << 7,
+};
+
+// Both displays share the same 5 character-cell → COM mapping.
 //   cell 0 (far left)  → COM 7
 //   cell 1             → COM 6
 //   cell 2             → COM 5
@@ -719,82 +739,88 @@ static constexpr uint16_t DP = 1u << 2;
 static constexpr uint8_t kComs[] = {7, 6, 5, 3, 2};
 static constexpr uint8_t kNumDigits = sizeof(kComs) / sizeof(kComs[0]);
 
-// Standard 7-seg glyphs. Returns 0 for "blank" or unknown chars.
-static uint16_t encode(char c) {
+// Software shadow of the 8 HT16K33 COM words. Lets us OR new bits onto a
+// COM without losing the bits the *other* display already wrote there.
+static uint16_t htShadow[8] = {0};
+
+// Update only the bits in `mask` on COM `digit`, then push to the chip.
+static void htWriteDigitMasked(uint8_t digit, uint16_t segs, uint16_t mask) {
+  htShadow[digit] = (htShadow[digit] & ~mask) | (segs & mask);
+  htWriteDigit(digit, htShadow[digit]);
+}
+
+// Standard 7-seg glyphs, parameterised by which Map (i.e. which display)
+// we're rendering for. Returns 0 for "blank" or unknown chars.
+static uint16_t encode(const Map &m, char c) {
   switch (c) {
-    case '0': return A | B | C | D | E | F;
-    case '1': return B | C;
-    case '2': return A | B | G | E | D;
-    case '3': return A | B | G | C | D;
-    case '4': return F | G | B | C;
-    case '5': return A | F | G | C | D;
-    case '6': return A | F | G | E | C | D;
-    case '7': return A | B | C;
-    case '8': return A | B | C | D | E | F | G;
-    case '9': return A | B | C | D | F | G;
-    case '-': return G;
-    case '_': return D;
+    case '0': return m.A | m.B | m.C | m.D | m.E | m.F;
+    case '1': return m.B | m.C;
+    case '2': return m.A | m.B | m.G | m.E | m.D;
+    case '3': return m.A | m.B | m.G | m.C | m.D;
+    case '4': return m.F | m.G | m.B | m.C;
+    case '5': return m.A | m.F | m.G | m.C | m.D;
+    case '6': return m.A | m.F | m.G | m.E | m.C | m.D;
+    case '7': return m.A | m.B | m.C;
+    case '8': return m.A | m.B | m.C | m.D | m.E | m.F | m.G;
+    case '9': return m.A | m.B | m.C | m.D | m.F | m.G;
+    case '-': return m.G;
+    case '_': return m.D;
     case ' ': return 0;
-    case 'A': case 'a': return A | B | C | E | F | G;
-    case 'b':          return C | D | E | F | G;
-    case 'C': case 'c': return A | D | E | F;
-    case 'd':          return B | C | D | E | G;
-    case 'E': case 'e': return A | D | E | F | G;
-    case 'F': case 'f': return A | E | F | G;
-    case 'H': case 'h': return B | C | E | F | G;
-    case 'L': case 'l': return D | E | F;
-    case 'P': case 'p': return A | B | E | F | G;
-    case 'r':          return E | G;
-    case 'o':          return C | D | E | G;
-    case 'S': case 's': return A | F | G | C | D;   // same shape as '5'
+    case 'A': case 'a': return m.A | m.B | m.C | m.E | m.F | m.G;
+    case 'b':          return m.C | m.D | m.E | m.F | m.G;
+    case 'C': case 'c': return m.A | m.D | m.E | m.F;
+    case 'd':          return m.B | m.C | m.D | m.E | m.G;
+    case 'E': case 'e': return m.A | m.D | m.E | m.F | m.G;
+    case 'F': case 'f': return m.A | m.E | m.F | m.G;
+    case 'H': case 'h': return m.B | m.C | m.E | m.F | m.G;
+    case 'L': case 'l': return m.D | m.E | m.F;
+    case 'P': case 'p': return m.A | m.B | m.E | m.F | m.G;
+    case 'r':          return m.E | m.G;
+    case 'o':          return m.C | m.D | m.E | m.G;
+    case 'S': case 's': return m.A | m.F | m.G | m.C | m.D;   // same as '5'
     default:           return 0;
   }
 }
 
-// Render a left-padded string across the panel. `s` may contain '.'
-// characters which are folded into the *previous* glyph's DP segment
-// (so "12.34" fits in 4 cells, not 5). Extra characters are truncated;
-// missing characters are blank-padded on the LEFT.
-static void writeText(const char *s) {
-  // First pass: pack into a (glyph, dp) buffer of size kNumDigits, right-
-  // aligned (so "12" → "   12", "12.34" → " 12.34").
+// Render a right-aligned string on display `m`. `s` may contain '.' chars
+// which are folded into the *previous* glyph's DP segment (so "12.34"
+// fits in 4 cells, not 5). Extra characters are truncated; missing
+// characters are blank-padded on the LEFT.
+static void writeText(const Map &m, const char *s) {
+  // Pack source into a (glyph, dp) buffer of size kNumDigits, right-aligned.
   uint16_t glyphs[kNumDigits];
   bool     dps[kNumDigits];
   for (uint8_t i = 0; i < kNumDigits; i++) { glyphs[i] = 0; dps[i] = false; }
 
-  // Walk source right-to-left, filling buffer from the right.
   size_t len = strlen(s);
   int8_t out = (int8_t)kNumDigits - 1;
   for (int i = (int)len - 1; i >= 0 && out >= 0; i--) {
     char c = s[i];
     if (c == '.') {
-      // Attach DP to the next non-dot char to the left, written into the
-      // current output cell (we don't consume an output slot for '.').
       if (i == 0) break;
-      // Find the next non-dot char to the left.
       int j = i - 1;
       while (j >= 0 && s[j] == '.') j--;
       if (j < 0) break;
-      glyphs[out] = encode(s[j]);
+      glyphs[out] = encode(m, s[j]);
       dps[out]    = true;
       out--;
-      i = j;       // outer loop will i-- past this char
+      i = j;
     } else {
-      glyphs[out] = encode(c);
+      glyphs[out] = encode(m, c);
       out--;
     }
   }
 
-  // Second pass: write each cell to its COM, with DP folded in.
+  const uint16_t clearMask = m.mask();
   for (uint8_t i = 0; i < kNumDigits; i++) {
-    uint16_t segs = glyphs[i] | (dps[i] ? DP : 0);
-    htWriteDigit(kComs[i], segs);
+    uint16_t segs = glyphs[i] | (dps[i] ? m.DP : 0);
+    htWriteDigitMasked(kComs[i], segs, clearMask);
   }
 }
 
-// Render a float with as many fractional digits as will fit. Negative
-// values consume one cell for '-'. If the integer part alone overflows
-// the panel width, displays "-----" (overflow).
+// Render a float on display `m` with as many fractional digits as will
+// fit. Negative values consume one cell for '-'. If the integer part
+// alone overflows the panel width, displays "-----" (overflow).
 //
 //   value      → 5-cell render
 //   3.14159    → "3.142" (rounded)
@@ -802,38 +828,28 @@ static void writeText(const char *s) {
 //   1234.5     → "1234.5" (uses all 5 cells, no fractional truncation)
 //   12345.6    → "12345"  (no room for '.' / fractional, integer fits)
 //   123456.7   → "-----"  (overflow)
-static void printFloat(float value) {
-  // Sign.
+static void printFloat(const Map &m, float value) {
   bool neg = value < 0;
   if (neg) value = -value;
 
-  // Integer-part digit count (at least 1, for "0").
   uint32_t intPart = (uint32_t)value;
   uint8_t  intDigits = 1;
   for (uint32_t t = intPart; t >= 10; t /= 10) intDigits++;
 
-  // Cells available for the integer part.
   uint8_t budget = kNumDigits - (neg ? 1 : 0);
   if (intDigits > budget) {
-    // Overflow: print "-" filled across the panel.
     char buf[kNumDigits + 1];
     for (uint8_t i = 0; i < kNumDigits; i++) buf[i] = '-';
     buf[kNumDigits] = '\0';
-    writeText(buf);
+    writeText(m, buf);
     return;
   }
 
-  // Fractional cells = leftover after sign + integer digits. The '.' is
-  // free (folded into the previous cell's DP).
   uint8_t fracDigits = budget - intDigits;
-
-  // Round to `fracDigits` decimals.
   float scale = 1.0f;
   for (uint8_t i = 0; i < fracDigits; i++) scale *= 10.0f;
   uint32_t scaled = (uint32_t)(value * scale + 0.5f);
 
-  // Re-extract integer & fractional parts after rounding (rounding may
-  // have bumped intPart, which could in turn overflow — re-check).
   uint32_t newIntPart  = scaled / (uint32_t)scale;
   uint32_t newFracPart = scaled % (uint32_t)scale;
   uint8_t  newIntDigits = 1;
@@ -842,24 +858,20 @@ static void printFloat(float value) {
     char buf[kNumDigits + 1];
     for (uint8_t i = 0; i < kNumDigits; i++) buf[i] = '-';
     buf[kNumDigits] = '\0';
-    writeText(buf);
+    writeText(m, buf);
     return;
   }
 
-  // Format into a string. Worst case: '-' + intDigits + '.' + fracDigits.
   char buf[16];
   int  pos = 0;
   if (neg) buf[pos++] = '-';
-  // Integer part.
   char tmp[12];
   int  tlen = 0;
   if (newIntPart == 0) tmp[tlen++] = '0';
   while (newIntPart > 0) { tmp[tlen++] = (char)('0' + newIntPart % 10); newIntPart /= 10; }
   while (tlen > 0) buf[pos++] = tmp[--tlen];
-  // Fractional part.
   if (fracDigits > 0) {
     buf[pos++] = '.';
-    // Zero-pad on the left of the fractional digits.
     char ftmp[12];
     int  flen = 0;
     for (uint8_t i = 0; i < fracDigits; i++) {
@@ -869,12 +881,16 @@ static void printFloat(float value) {
     while (flen > 0) buf[pos++] = ftmp[--flen];
   }
   buf[pos] = '\0';
-  writeText(buf);
+  writeText(m, buf);
 }
 
-// Clear all 7-seg cells (leaves the 14-seg / RGB LEDs untouched).
-static void clear() {
-  for (uint8_t i = 0; i < kNumDigits; i++) htWriteDigit(kComs[i], 0);
+// Clear only display `m`'s segments (leaves the other display + the
+// 14-seg/RGB LEDs untouched).
+static void clear(const Map &m) {
+  const uint16_t clearMask = m.mask();
+  for (uint8_t i = 0; i < kNumDigits; i++) {
+    htWriteDigitMasked(kComs[i], 0, clearMask);
+  }
 }
 
 }  // namespace seg7
