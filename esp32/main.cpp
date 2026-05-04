@@ -153,16 +153,28 @@ static void htWriteDigit(uint8_t digit, uint16_t segs) {
   Wire.endTransmission();
 }
 
+// ── Per-digit shadow used by every writer to coexist on the same RAM word.
+// Each writer (htSetAllRgb, seg7::writeText, the loop() animation,
+// showOtaProgress, …) only touches the bits it owns via htWriteDigitShadow,
+// so different "logical" devices that happen to share a digit never clobber
+// each other.
+static uint16_t kHtShadow[8] = {0};
+
+static void htWriteDigitShadow(uint8_t digit, uint16_t segs, uint16_t mask) {
+  kHtShadow[digit] = (kHtShadow[digit] & ~mask) | (segs & mask);
+  htWriteDigit(digit, kHtShadow[digit]);
+}
+
 // Drive every RGB LED to the same color. r/g/b are booleans (no per-color
 // PWM — the HT16K33 has only a global brightness register).
 //
 // For each digit we accumulate the segment masks of *all* RGB LEDs that
-// live on it, then apply RGB_ACTIVE_LOW inversion only to that union of
-// RGB-controlled bits.
+// live on it, then push only those bits via htWriteDigitShadow so any
+// non-RGB bits on the same digit (e.g. seg7 cells that share a COM) are
+// preserved bit-for-bit.
 static void htSetAllRgb(bool r, bool g, bool b) {
-  // Per-digit accumulators (panel has 4 digits worth of RAM).
   uint16_t rgbBits[4]  = {0, 0, 0, 0};
-  uint16_t rgbMask[4]  = {0, 0, 0, 0};   // union of all RGB-controlled bits
+  uint16_t rgbMask[4]  = {0, 0, 0, 0};
   for (uint8_t i = 0; i < kNumRgbLeds; i++) {
     const RgbLed &led = kRgbLeds[i];
     uint8_t d = led.digit;
@@ -177,7 +189,7 @@ static void htSetAllRgb(bool r, bool g, bool b) {
 #if RGB_ACTIVE_LOW
     segs = (~segs) & rgbMask[d];   // invert only RGB-controlled bits
 #endif
-    htWriteDigit(d, segs);
+    htWriteDigitShadow(d, segs, rgbMask[d]);
   }
 }
 
@@ -189,7 +201,6 @@ static void setupHt16k33() {
   htCmd(HT_DIMMING_BASE | 2);
   htCmd(HT_DISPLAY_ON);        // display on, no hardware blink
   htFillAll(0x00);             // start with everything off
-  htSetAllRgb(true, true, true); // all RGB LEDs white as a power-on indicator
   Serial.println("HT16K33: setup done");
 }
 
@@ -205,16 +216,21 @@ namespace seg7 {
   static void clear(const Map &m);
 }
 
-// Startup self-test: one quick all-on flash — RGB LEDs red, both 5-digit
-// 7-seg displays showing "8.8.8.8.8." (every segment + DP lit) — then
-// blank everything.
+// Startup self-test: one quick all-on flash — RGB LEDs red and both
+// 5-digit 7-seg (red) displays showing "8.8.8.8.8." (every segment + DP
+// lit) — then blank everything.
+//
+// The 7-seg writes are issued *before* the RGB write so that the last
+// I²C transaction on digits 0/1 is the RGB-only word; the shared
+// kHtShadow guarantees the seg7 writes never touch the bits the RGB
+// layer owns.
 static void startupColorBlink() {
-  htSetAllRgb(true, false, false);            // red on
   seg7::writeText(seg7::kTop, "8.8.8.8.8.");
   seg7::writeText(seg7::kBot, "8.8.8.8.8.");
+  htSetAllRgb(true, false, false);            // red on (last write to dig 0/1)
   delay(50);
 
-  htSetAllRgb(false, false, false);           // off
+  htSetAllRgb(false, false, false);           // RGB off
   seg7::clear(seg7::kTop);
   seg7::clear(seg7::kBot);
 }
@@ -335,7 +351,7 @@ static void showOtaProgress(int percent) {
 #if RGB_ACTIVE_LOW
     segs = (~segs) & rgbMask[d];
 #endif
-    htWriteDigit(d, segs);
+    htWriteDigitShadow(d, segs, rgbMask[d]);
   }
 }
 
@@ -758,9 +774,9 @@ void loop() {
         for (uint8_t d = 0; d < 4; d++) {
           if (rgbMask[d] == 0) continue;
 #if RGB_ACTIVE_LOW
-          htWriteDigit(d, rgbMask[d]);   // all RGB bits inactive (HIGH)
+          htWriteDigitShadow(d, rgbMask[d], rgbMask[d]);  // RGB bits inactive (HIGH)
 #else
-          htWriteDigit(d, 0);            // all RGB bits off (LOW)
+          htWriteDigitShadow(d, 0, rgbMask[d]);           // RGB bits off (LOW)
 #endif
         }
         wasRunning = false;
@@ -790,7 +806,7 @@ void loop() {
 #if RGB_ACTIVE_LOW
           segs = (~segs) & rgbMask[d];
 #endif
-          htWriteDigit(d, segs);
+          htWriteDigitShadow(d, segs, rgbMask[d]);
         }
 
         // Tick the 7-seg counter in lockstep with the LED flicker. Mirror
@@ -864,14 +880,14 @@ const Map kBot = {
 static constexpr uint8_t kComs[] = {7, 6, 5, 3, 2};
 static constexpr uint8_t kNumDigits = sizeof(kComs) / sizeof(kComs[0]);
 
-// Software shadow of the 8 HT16K33 COM words. Lets us OR new bits onto a
-// COM without losing the bits the *other* display already wrote there.
-static uint16_t htShadow[8] = {0};
+// Software shadow of the 8 HT16K33 COM words is owned at file scope
+// (kHtShadow) and shared with the RGB-LED writers via htWriteDigitShadow,
+// so the two logical "devices" can coexist on overlapping segment lines
+// without clobbering each other.
 
 // Update only the bits in `mask` on COM `digit`, then push to the chip.
 static void htWriteDigitMasked(uint8_t digit, uint16_t segs, uint16_t mask) {
-  htShadow[digit] = (htShadow[digit] & ~mask) | (segs & mask);
-  htWriteDigit(digit, htShadow[digit]);
+  htWriteDigitShadow(digit, segs, mask);
 }
 
 // Standard 7-seg glyphs, parameterised by which Map (i.e. which display)
