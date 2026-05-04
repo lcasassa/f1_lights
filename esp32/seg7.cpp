@@ -55,6 +55,8 @@ uint16_t encode(const Map &m, char c) {
     case 'r':           return m.E | m.G;
     case 'o':           return m.C | m.D | m.E | m.G;
     case 'S': case 's': return m.A | m.F | m.G | m.C | m.D;
+    case 'U': case 'u': case 'V': case 'v':
+                        return m.B | m.C | m.D | m.E | m.F;   // big "U"
     default:            return 0;
   }
 }

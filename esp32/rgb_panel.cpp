@@ -92,6 +92,22 @@ void blank() {
   setAll(false, false, false);
 }
 
+void setBusy(uint8_t ledIndex, bool on) {
+  setLed(ledIndex, on, false, false);
+}
+
+void setLed(uint8_t ledIndex, bool r, bool g, bool b) {
+  uint16_t bits[4] = {0, 0, 0, 0};
+  uint16_t mask[4]; rgbMaskByDigit(mask);
+  if (ledIndex < kNumLeds) {
+    const Led &led = kLeds[ledIndex];
+    if (r) bits[led.digit] |= led.rMask;
+    if (g) bits[led.digit] |= led.gMask;
+    if (b) bits[led.digit] |= led.bMask;
+  }
+  flush(bits, mask);
+}
+
 void tickRandomRed() {
   uint16_t bits[4] = {0, 0, 0, 0};
   uint16_t mask[4]; rgbMaskByDigit(mask);

@@ -34,6 +34,18 @@ void setAll(bool r, bool g, bool b);
 // Force every RGB-controlled bit to "off" (respects RGB_ACTIVE_LOW).
 void blank();
 
+// "Busy" indicator: light a single LED (0-based index into kLeds) red and
+// blank the others. Used during long blocking calls (WiFi associate,
+// HTTPS GET, …) where there's no real progress percentage to show yet.
+// Pass `on = false` to clear.
+void setBusy(uint8_t ledIndex, bool on);
+
+// Light a single LED (0-based index) to an arbitrary R/G/B mix and blank
+// every other RGB-controlled bit. Useful for one-off status indicators
+// (e.g. yellow = lean build, blue = AP mode) without having to reason
+// about per-digit segment masks.
+void setLed(uint8_t ledIndex, bool r, bool g, bool b);
+
 // One frame of the random per-LED red flicker (50/50 per LED). Call from
 // a paced loop — does no timing of its own.
 void tickRandomRed();

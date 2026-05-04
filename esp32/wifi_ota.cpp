@@ -13,6 +13,7 @@
 #endif
 
 #include "rgb_panel.h"
+#include "seg7.h"
 #include "wifi_credentials.h"
 
 // Build-time identity (overridden by CI: -DFIRMWARE_VERSION=\"<sha>\").
@@ -40,16 +41,19 @@ bool connectWifi() {
   WiFi.begin();                   // uses last-saved creds from NVS
 
   Serial.print("WiFi: connecting using saved credentials");
+  rgb_panel::setBusy(0, true);    // LED #1: WiFi associate in progress
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print('.');
     delay(200);
     if (millis() - start > 30000) {
       Serial.println("\nWiFi: STA timeout");
+      rgb_panel::setBusy(0, false);
       return false;
     }
   }
   Serial.printf("\nWiFi: connected, IP=%s\n", WiFi.localIP().toString().c_str());
+  rgb_panel::setBusy(0, false);
   return true;
 }
 
@@ -165,7 +169,14 @@ void handleOta() {
 #ifndef DISABLE_GITHUB_OTA
 namespace {
 
-String fetchLatestVersion() {
+// Out-param error codes: 0 = success, positive = HTTP status (e.g. 404),
+// negative = HTTPClient transport error (e.g. -11 read timeout, -1 conn
+// refused). Special pre-HTTP codes:
+constexpr int kErrBegin     = -1000;  // http.begin() failed (URL parse / TLS init)
+constexpr int kErrEmptyBody = -1001;  // 200 OK but body was empty after trim
+
+String fetchLatestVersion(int *errOut) {
+  *errOut = 0;
   WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10);
@@ -175,6 +186,7 @@ String fetchLatestVersion() {
   http.setUserAgent("f1-esp32-ota");
   if (!http.begin(client, OTA_VERSION_URL)) {
     Serial.println("OTA-check: http.begin failed");
+    *errOut = kErrBegin;
     return String();
   }
   int code = http.GET();
@@ -182,11 +194,24 @@ String fetchLatestVersion() {
   if (code == HTTP_CODE_OK) {
     body = http.getString();
     body.trim();
+    if (body.isEmpty()) *errOut = kErrEmptyBody;
   } else {
     Serial.printf("OTA-check: HTTP %d\n", code);
+    *errOut = code;   // negative for HTTPClient errors, positive for HTTP status
   }
   http.end();
   return body;
+}
+
+// Render an error on the front panel: "Err" on the top 7-seg, the
+// numeric error code on the bottom one, and the full RGB ring red.
+void showFetchError(int code) {
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", code);
+  seg7::writeText(seg7::kTop, "Err");
+  seg7::writeText(seg7::kBot, buf);
+  rgb_panel::setAll(true, false, false);   // all LEDs red
+  Serial.printf("OTA-check: error code %d shown on panel\n", code);
 }
 
 }  // namespace
@@ -197,19 +222,38 @@ void checkAndUpdateFromGithub() {
     return;
   }
   Serial.printf("OTA-check: running version '%s'\n", FIRMWARE_VERSION);
-  String latest = fetchLatestVersion();
+
+  // While we're talking to GitHub (DNS + TLS handshake + HTTP GET), there's
+  // no real % to show — light LED #2 as a "busy" indicator.
+  rgb_panel::setBusy(1, true);
+  int fetchErr = 0;
+  String latest = fetchLatestVersion(&fetchErr);
+  rgb_panel::setBusy(1, false);
+
   if (latest.isEmpty()) {
     Serial.println("OTA-check: could not read latest version, skipping");
+    showFetchError(fetchErr);
     return;
   }
   Serial.printf("OTA-check: latest = '%s'\n", latest.c_str());
+
+  // Show running version on the top display, latest on the bottom.
+  // Truncate to 5 chars so the standard short-SHA (or any longer string)
+  // fits the 5-cell panel cleanly. The seg7 encoder handles 0-9 + a-f.
+  String runningShort = String(FIRMWARE_VERSION).substring(0, 5);
+  String latestShort  = latest.substring(0, 5);
+  seg7::writeText(seg7::kTop, runningShort.c_str());
+  seg7::writeText(seg7::kBot, latestShort.c_str());
+
   if (latest == FIRMWARE_VERSION) {
     Serial.println("OTA-check: already up to date");
+    rgb_panel::setBusy(9, true);   // LED #10: "running latest" indicator
     return;
   }
 
   Serial.println("OTA-check: new version available, downloading...");
-  rgb_panel::blank();
+  // showOtaProgress will paint the RGB ring during the download; the
+  // seg7 SHAs stay visible because they own disjoint segment bits.
   rgb_panel::showOtaProgress(0);
 
   WiFiClientSecure client;
@@ -254,6 +298,9 @@ void checkAndUpdateFromGithub() {
 #else  // DISABLE_GITHUB_OTA
 void checkAndUpdateFromGithub() {
   Serial.println("OTA-check: GitHub self-update disabled at build time");
+  // Visual cue so it's obvious from the panel that this is the lean
+  // build (no fetch, no version compare). LED #5 yellow = "skipped".
+  rgb_panel::setLed(4, true, true, false);
 }
 #endif
 

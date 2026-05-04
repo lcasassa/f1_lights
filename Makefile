@@ -108,8 +108,14 @@ upload-screen-dino: build-screen-dino
 	pio run -e screen-dino -t upload --upload-port $(PORT)
 
 # ── ESP32-C3 Super Mini ─────────────────────────────────────────────────────
+# Inject the local short SHA into every ESP32 build so the on-device version
+# display (and the GitHub OTA-check) shows something sensible instead of
+# the "dev" placeholder. CI overrides this with the canonical commit SHA.
+ESP32_FW_VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+export PLATFORMIO_BUILD_FLAGS = -DFIRMWARE_VERSION=\"$(ESP32_FW_VERSION)\"
+
 build-esp32:
-	@echo "Building ESP32-C3 Super Mini blink firmware..."
+	@echo "Building ESP32-C3 Super Mini blink firmware (fw=$(ESP32_FW_VERSION))..."
 	pio run -e esp32-c3-supermini
 
 upload-esp32: build-esp32
@@ -148,11 +154,11 @@ ifeq ($(OTA_HOST),f1-esp32.local)
 endif
 
 upload-esp32-ota:
-	@echo "OTA upload (lean) to $(OTA_HOST) ..."
+	@echo "OTA upload (lean, fw=$(ESP32_FW_VERSION)) to $(OTA_HOST) ..."
 	pio run -e esp32-c3-supermini-ota-fast -t upload --upload-port $(OTA_HOST)
 
 upload-esp32-ota-full:
-	@echo "OTA upload (full, w/ GitHub self-updater) to $(OTA_HOST) ..."
+	@echo "OTA upload (full, fw=$(ESP32_FW_VERSION), w/ GitHub self-updater) to $(OTA_HOST) ..."
 	pio run -e esp32-c3-supermini-ota -t upload --upload-port $(OTA_HOST)
 
 # Flash the segment-bit scanner over USB: lights one HT16K33 bit at a time
