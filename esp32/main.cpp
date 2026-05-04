@@ -12,6 +12,7 @@
 #include "animation.h"
 #include "ht16k33.h"
 #include "peripherals.h"
+#include "rgb_panel.h"
 #include "segment_scan.h"
 #include "wifi_ota.h"
 
@@ -21,6 +22,31 @@
 #ifndef OTA_REPO
 #define OTA_REPO "lcasassa/f1_lights"
 #endif
+
+// Both buttons must stay pressed continuously for this long at boot to
+// trigger the factory-reset (wipe stored WiFi credentials).
+static constexpr uint32_t kFactoryResetHoldMs = 10000;
+
+// Block until either both buttons are released or the hold deadline is
+// reached. Returns true iff the user held A+B for the full duration.
+// The RGB ring fills red as a visible countdown.
+static bool waitForFactoryResetHold() {
+  Serial.println("boot: keep A+B held for 10 s for factory reset...");
+  const uint32_t start = millis();
+  while (peripherals::bothButtonsPressed()) {
+    uint32_t elapsed = millis() - start;
+    if (elapsed >= kFactoryResetHoldMs) {
+      rgb_panel::showOtaProgress(100);   // all-red = committed
+      return true;
+    }
+    int pct = (int)((uint64_t)elapsed * 100 / kFactoryResetHoldMs);
+    rgb_panel::showOtaProgress(pct);
+    delay(50);
+  }
+  rgb_panel::blank();
+  Serial.println("boot: A+B released early, factory reset cancelled");
+  return false;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -38,14 +64,18 @@ void setup() {
 #endif
 
   animation::startupBlink();
-  animation::startupBlink();
 
   // Sample both buttons NOW (before WiFi association eats 30 s of wall
   // clock) to decide whether to allow the provisioning portal when the
-  // saved credentials don't connect. Holding A+B at boot arms it.
+  // saved credentials don't connect. Holding A+B at boot arms it; keep
+  // them held for a further 10 s to also wipe the stored credentials.
   const bool provisioningAllowed = peripherals::bothButtonsPressed();
   if (provisioningAllowed) {
-    Serial.println("boot: A+B held, provisioning portal armed if STA fails");
+    Serial.println("boot: A+B held, provisioning portal armed");
+    if (waitForFactoryResetHold()) {
+      wifi_ota::eraseStoredCredentials();
+      // Forced into the portal — there are no creds left to try.
+    }
   }
 
   wifi_ota::connectOrProvision(provisioningAllowed);

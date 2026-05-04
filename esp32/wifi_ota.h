@@ -25,6 +25,11 @@ bool connectWifi();
 // On any other failure, reboots.
 void connectOrProvision(bool provisioningAllowed);
 
+// Factory-reset: wipe the WiFi SSID/PSK that the IDF stored in NVS, plus
+// any credentials WiFiManager cached. Next connectWifi() will fail and
+// the provisioning portal becomes the only way back online.
+void eraseStoredCredentials();
+
 // Start the ArduinoOTA receiver (mDNS hostname + password from
 // wifi_credentials.h). Call after WiFi is up.
 void setupArduinoOta();

@@ -100,6 +100,16 @@ void connectOrProvision(bool provisioningAllowed) {
   ESP.restart();
 }
 
+void eraseStoredCredentials() {
+  Serial.println("WiFi: factory-reset — wiping saved STA credentials");
+  // IDF-side STA SSID/PSK in NVS. Second `true` = eraseAP (NVS).
+  WiFi.disconnect(true, true);
+  // WiFiManager-side cached creds (its own NVS namespace).
+  WiFiManager wm;
+  wm.resetSettings();
+  delay(50);
+}
+
 void setupArduinoOta() {
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   if (strlen(OTA_PASSWORD) > 0) {
