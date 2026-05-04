@@ -214,6 +214,68 @@ static void startupColorBlink() {
 #ifndef ONBOARD_LED_PIN
 #define ONBOARD_LED_PIN 8
 #endif
+
+// ── Passive buzzer ─────────────────────────────────────────────────────────
+// Driven via Arduino-ESP32's tone() (LEDC under the hood). GPIO 10 is a
+// plain output on the ESP32-C3 Super Mini — no strapping role, no shared
+// peripheral. Override with -DBUZZER_PIN=<n> from platformio.ini if your
+// wiring differs. Define BUZZER_PIN=-1 to compile the buzzer code out.
+#ifndef BUZZER_PIN
+#define BUZZER_PIN 10
+#endif
+
+static inline void setupBuzzer() {
+#if BUZZER_PIN >= 0
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+#endif
+}
+
+// Block-and-beep: emit a tone at `freq` Hz for `ms` milliseconds, then
+// silence the pin. Safe to call before WiFi is up.
+static void buzzerBeep(uint32_t freq, uint32_t ms) {
+#if BUZZER_PIN >= 0
+  tone(BUZZER_PIN, freq, ms);
+  delay(ms);
+  noTone(BUZZER_PIN);
+  digitalWrite(BUZZER_PIN, LOW);   // make sure pin doesn't idle high
+#else
+  (void)freq; (void)ms;
+#endif
+}
+
+// Two-note "boot OK" chirp.
+static void startupBeep() {
+#if BUZZER_PIN >= 0
+  Serial.println("buzzer: startup beep");
+  buzzerBeep(2000, 80);
+  delay(40);
+  buzzerBeep(2700, 120);
+#endif
+}
+
+// ── Buttons ────────────────────────────────────────────────────────────────
+// Two momentary push-buttons to GND, using internal pull-ups (active-low).
+// Either one being pressed gates the loop() animation — see runSequence()
+// below. Override pins with -DBTN_A_PIN=<n> -DBTN_B_PIN=<n>.
+#ifndef BTN_A_PIN
+#define BTN_A_PIN 6
+#endif
+#ifndef BTN_B_PIN
+#define BTN_B_PIN 7
+#endif
+
+static inline void setupButtons() {
+  pinMode(BTN_A_PIN, INPUT_PULLUP);
+  pinMode(BTN_B_PIN, INPUT_PULLUP);
+}
+
+// True while either button is held down (active-low → LOW = pressed).
+static inline bool anyButtonPressed() {
+  return (digitalRead(BTN_A_PIN) == LOW) || (digitalRead(BTN_B_PIN) == LOW);
+}
+
+
 static inline void setupLed() {
   pinMode(ONBOARD_LED_PIN, OUTPUT);
   digitalWrite(ONBOARD_LED_PIN, HIGH);  // off (active-low)
@@ -615,10 +677,13 @@ void setup() {
                 FIRMWARE_VERSION, OTA_REPO);
 
   setupLed();
+  setupBuzzer();
+  setupButtons();
   setupHt16k33();
 #if defined(SEGMENT_SCAN) && (SEGMENT_SCAN)
   runSegmentScan();             // never returns; for bit-mapping debug
 #endif
+  startupBeep();                // audible "I'm alive"
   startupColorBlink();          // R / G / B self-test
   // 7-seg self-test, three frames so every segment + every DP is exercised
   // on BOTH 5-digit displays (they share COMs but use disjoint ROW bits):
@@ -643,50 +708,80 @@ void loop() {
   ArduinoOTA.handle();
 
   if (!otaInProgress) {
-    // Random per-LED red flicker: every 250 ms, each of the 10 RGB LEDs
-    // independently picks ON or OFF (red only). Other colors stay dark.
-    static uint32_t lastTick = 0;
-    static float segCounter = 0;
-    uint32_t now = millis();
-    if (now - lastTick >= 250) {
-      lastTick = now;
+    // The flicker + counter sequence only runs while at least one of the
+    // two front-panel buttons is held down. When neither is pressed we
+    // clear the panel once on the falling edge so the off state is
+    // visually obvious, and stop ticking the counter.
+    static bool wasRunning = false;
+    bool running = anyButtonPressed();
 
-      // Build per-digit segment word: union of red masks for LEDs the RNG
-      // picked, with the rest of the RGB-controlled bits forced low.
-      uint16_t rgbBits[4] = {0, 0, 0, 0};
-      uint16_t rgbMask[4] = {0, 0, 0, 0};
-      for (uint8_t i = 0; i < kNumRgbLeds; i++) {
-        const RgbLed &led = kRgbLeds[i];
-        rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
-        if (random(0, 2)) rgbBits[led.digit] |= led.rMask;   // 50/50
-      }
-      for (uint8_t d = 0; d < 4; d++) {
-        if (rgbMask[d] == 0) continue;
-        uint16_t segs = rgbBits[d];
+    if (!running) {
+      if (wasRunning) {
+        // Idle: blank both 7-seg panels and all RGB-controlled bits.
+        seg7::clear(seg7::kTop);
+        seg7::clear(seg7::kBot);
+        uint16_t rgbMask[4] = {0, 0, 0, 0};
+        for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+          const RgbLed &led = kRgbLeds[i];
+          rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
+        }
+        for (uint8_t d = 0; d < 4; d++) {
+          if (rgbMask[d] == 0) continue;
 #if RGB_ACTIVE_LOW
-        segs = (~segs) & rgbMask[d];
+          htWriteDigit(d, rgbMask[d]);   // all RGB bits inactive (HIGH)
+#else
+          htWriteDigit(d, 0);            // all RGB bits off (LOW)
 #endif
-        htWriteDigit(d, segs);
+        }
+        wasRunning = false;
       }
+    } else {
+      wasRunning = true;
+      // Random per-LED red flicker: every 250 ms, each of the 10 RGB LEDs
+      // independently picks ON or OFF (red only). Other colors stay dark.
+      static uint32_t lastTick = 0;
+      static float segCounter = 0;
+      uint32_t now = millis();
+      if (now - lastTick >= 250) {
+        lastTick = now;
 
-      // Tick the 7-seg counter in lockstep with the LED flicker. Mirror
-      // the same number to both displays.
-      seg7::printFloat(seg7::kTop, segCounter);
-      seg7::printFloat(seg7::kBot, segCounter);
-      // Random increment in [minInc, 0.1]. minInc grows with the integer
-      // part so the smallest step is always at least one visible LSB on
-      // the 5-digit panel (e.g. value=12 → 3 fractional digits → min 0.001).
-      float minInc;
-      uint32_t v = (uint32_t)segCounter;
-      if      (v >= 10000) minInc = 1.0f;     // no fractional cells
-      else if (v >= 1000)  minInc = 0.1f;     // 1 fractional digit
-      else if (v >= 100)   minInc = 0.01f;    // 2 fractional digits
-      else if (v >= 10)    minInc = 0.001f;   // 3 fractional digits
-      else                 minInc = 0.0001f;  // 4 fractional digits
-      const float maxInc = 0.1f;
-      if (minInc > maxInc) minInc = maxInc;
-      float t = (float)random(0, 10001) / 10000.0f;          // 0..1
-      segCounter += minInc + t * (maxInc - minInc);
+        // Build per-digit segment word: union of red masks for LEDs the RNG
+        // picked, with the rest of the RGB-controlled bits forced low.
+        uint16_t rgbBits[4] = {0, 0, 0, 0};
+        uint16_t rgbMask[4] = {0, 0, 0, 0};
+        for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+          const RgbLed &led = kRgbLeds[i];
+          rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
+          if (random(0, 2)) rgbBits[led.digit] |= led.rMask;   // 50/50
+        }
+        for (uint8_t d = 0; d < 4; d++) {
+          if (rgbMask[d] == 0) continue;
+          uint16_t segs = rgbBits[d];
+#if RGB_ACTIVE_LOW
+          segs = (~segs) & rgbMask[d];
+#endif
+          htWriteDigit(d, segs);
+        }
+
+        // Tick the 7-seg counter in lockstep with the LED flicker. Mirror
+        // the same number to both displays.
+        seg7::printFloat(seg7::kTop, segCounter);
+        seg7::printFloat(seg7::kBot, segCounter);
+        // Random increment in [minInc, 0.1]. minInc grows with the integer
+        // part so the smallest step is always at least one visible LSB on
+        // the 5-digit panel (e.g. value=12 → 3 fractional digits → min 0.001).
+        float minInc;
+        uint32_t v = (uint32_t)segCounter;
+        if      (v >= 10000) minInc = 1.0f;     // no fractional cells
+        else if (v >= 1000)  minInc = 0.1f;     // 1 fractional digit
+        else if (v >= 100)   minInc = 0.01f;    // 2 fractional digits
+        else if (v >= 10)    minInc = 0.001f;   // 3 fractional digits
+        else                 minInc = 0.0001f;  // 4 fractional digits
+        const float maxInc = 0.1f;
+        if (minInc > maxInc) minInc = maxInc;
+        float t = (float)random(0, 10001) / 10000.0f;          // 0..1
+        segCounter += minInc + t * (maxInc - minInc);
+      }
     }
   }
 
