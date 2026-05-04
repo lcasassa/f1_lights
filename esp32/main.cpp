@@ -223,16 +223,9 @@ static inline void setLed(bool on) {
 }
 
 // ── Segment-bit scanner (debug aid) ────────────────────────────────────────
-// Define SEGMENT_SCAN=<digit-bitmask> in the build env to identify which
-// physical segment each of the 16 bits drives on your specific HT16K33
-// backpack. The mask selects which of the 4 panel digits receive the probe
-// pattern simultaneously, so wired-in-parallel LEDs (e.g. our Dig1 + Dig2
-// pair sharing the same segment lines) all respond at once.
-//
-//   SEGMENT_SCAN=0x1   Dig1 only
-//   SEGMENT_SCAN=0x2   Dig2 only
-//   SEGMENT_SCAN=0x3   Dig1 AND Dig2     (recommended — default below)
-//   SEGMENT_SCAN=0xF   all four digits
+// Define SEGMENT_SCAN=1 in the build env to enable the bit-mapping scanner.
+// It always probes ALL 8 HT16K33 COM lines (digits 0..7), so any wired-in-
+// parallel LED responds regardless of which digit it lives on.
 //
 // Two modes, selected by SEGMENT_SCAN_MODE (default = binary search):
 //
@@ -241,37 +234,24 @@ static inline void setLed(bool on) {
 //                          monitor. Lights half of the still-candidate
 //                          bits at once and asks "is your target lit?".
 //                          Type y / n / a / r / q + Enter.
-#ifdef SEGMENT_SCAN
+#if defined(SEGMENT_SCAN) && (SEGMENT_SCAN)
 #ifndef SEGMENT_SCAN_MODE
 #define SEGMENT_SCAN_MODE 1   // 0 = sequential, 1 = interactive binary search
 #endif
 
-// Treat SEGMENT_SCAN as a bitmask of digits. Backward-compat: a value of 0
-// (i.e. -DSEGMENT_SCAN=0) is interpreted as "Dig1 only" (bit 0 set).
-static constexpr uint8_t kScanDigitMask = (uint8_t)((SEGMENT_SCAN) == 0 ? 0x1 : (SEGMENT_SCAN));
+// HT16K33 has 8 COM lines → 8 addressable digits of 16 bits each.
+static constexpr uint8_t kScanNumDigits = 8;
+static constexpr uint8_t kScanDigitMask = 0xFF;   // all 8 digits in play
 
-// Write the same 16-bit segment word to every digit selected by the mask.
+// Write the same 16-bit segment word to every digit.
 static void scanWriteAllDigits(uint16_t segs) {
-  for (uint8_t d = 0; d < 4; d++) {
-    if (kScanDigitMask & (1u << d)) htWriteDigit(d, segs);
-  }
-}
-
-// Comma-separated list of selected digits, e.g. "0,1".
-static void printScanDigits() {
-  bool first = true;
-  for (uint8_t d = 0; d < 4; d++) {
-    if (kScanDigitMask & (1u << d)) {
-      Serial.printf("%s%u", first ? "" : ",", d);
-      first = false;
-    }
+  for (uint8_t d = 0; d < kScanNumDigits; d++) {
+    htWriteDigit(d, segs);
   }
 }
 
 static void runSegmentScanSequential() {
-  Serial.print("SEGMENT_SCAN(seq): walking digits ");
-  printScanDigits();
-  Serial.println(", one bit at a time");
+  Serial.println("SEGMENT_SCAN(seq): walking all 8 digits, one bit at a time");
   while (true) {
     for (uint8_t bit = 0; bit < 16; bit++) {
       uint16_t mask = (uint16_t)(1u << bit);
@@ -329,11 +309,9 @@ static uint16_t lowerHalfOf(uint16_t candidates) {
 }
 
 static void runSegmentScanBinary() {
-  Serial.print(
-    "\nSEGMENT_SCAN(binary): two-stage interactive bit-finder\n"
-    "  Search universe = digits ");
-  printScanDigits();
   Serial.println(
+    "\nSEGMENT_SCAN(binary): two-stage interactive bit-finder\n"
+    "  Search universe = all 8 HT16K33 COM lines (digits 0..7)\n"
     "\n"
     "  Stage 1: narrow down which DIGIT your target lives on by lighting\n"
     "           ALL 16 segments on half of the candidate digits.\n"
@@ -344,7 +322,7 @@ static void runSegmentScanBinary() {
     "    a = light EVERYTHING on every candidate digit for 1 s\n"
     "    r = restart from stage 1\n"
     "    q = quit (returns to normal firmware)\n"
-    "  ~6 questions total to find one bit on one digit out of 4 digits.\n");
+    "  ~7 questions total to find one bit on one digit out of 8 digits.\n");
 
   while (true) {
     // ── Stage 1: digit search ────────────────────────────────────────────
@@ -357,23 +335,23 @@ static void runSegmentScanBinary() {
       uint8_t total = __builtin_popcount(digCands);
       uint8_t want  = total / 2; if (want == 0) want = 1;
       uint8_t probeDigits = 0, taken = 0;
-      for (uint8_t d = 0; d < 4 && taken < want; d++) {
+      for (uint8_t d = 0; d < kScanNumDigits && taken < want; d++) {
         if (digCands & (1u << d)) { probeDigits |= (1u << d); taken++; }
       }
 
       htFillAll(0x00);
-      for (uint8_t d = 0; d < 4; d++) {
+      for (uint8_t d = 0; d < kScanNumDigits; d++) {
         if (probeDigits & (1u << d)) htWriteDigit(d, allBits);
       }
 
       Serial.printf("\nQ%u (digit)  candidates [", question++);
-      for (uint8_t d = 0, first = 1; d < 4; d++) {
+      for (uint8_t d = 0, first = 1; d < kScanNumDigits; d++) {
         if (digCands & (1u << d)) {
           Serial.printf("%s%u", first ? "" : ",", d); first = 0;
         }
       }
       Serial.printf("]  lighting [");
-      for (uint8_t d = 0, first = 1; d < 4; d++) {
+      for (uint8_t d = 0, first = 1; d < kScanNumDigits; d++) {
         if (probeDigits & (1u << d)) {
           Serial.printf("%s%u", first ? "" : ",", d); first = 0;
         }
@@ -384,7 +362,7 @@ static void runSegmentScanBinary() {
       if (ans == 'q') { htFillAll(0x00); Serial.println("quit"); delay(200); ESP.restart(); }
       if (ans == 'a') {
         Serial.println("  ALL ON 1 s ...");
-        for (uint8_t d = 0; d < 4; d++) {
+        for (uint8_t d = 0; d < kScanNumDigits; d++) {
           if (kScanDigitMask & (1u << d)) htWriteDigit(d, 0xFFFF);
         }
         delay(1000);
@@ -619,6 +597,14 @@ static inline void checkAndUpdateFromGithub() {
 }
 #endif
 
+// Forward declarations for the 5-digit 7-seg helpers (definitions live in
+// the seg7 namespace at the bottom of the file).
+namespace seg7 {
+  static void writeText(const char *s);
+  static void printFloat(float value);
+  static void clear();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -627,10 +613,21 @@ void setup() {
 
   setupLed();
   setupHt16k33();
-#ifdef SEGMENT_SCAN
+#if defined(SEGMENT_SCAN) && (SEGMENT_SCAN)
   runSegmentScan();             // never returns; for bit-mapping debug
 #endif
   startupColorBlink();          // R / G / B self-test
+  // 7-seg self-test, three frames so every segment + every DP is exercised:
+  //   1) "8.8.8.8.8."  → every segment + every DP on (all 5 cells lit full)
+  //   2) "2.2.222"     → digit '2' on every cell, DP on the leftmost 2
+  //   3) "555.5.5."    → digit '5' on every cell, DP on the rightmost 3
+  // Frames 2+3 cover the same 5 DPs that frame 1 lit, split 2 + 3.
+  seg7::writeText("8.8.8.8.8.");
+  delay(700);
+  seg7::writeText("2.2222.");
+  delay(700);
+  seg7::writeText("55.5.5.5");
+  delay(700);
   connectWifi();
   checkAndUpdateFromGithub();   // may reboot into new firmware
   setupOta();
@@ -651,12 +648,30 @@ void loop() {
     };
     static uint32_t lastHue = 0;
     static uint8_t hueIdx = 0;
+    static float segCounter = 0;
     uint32_t now = millis();
     if (now - lastHue >= 250) {
       lastHue = now;
       hueIdx = (hueIdx + 1) % 6;
       const uint8_t *c = rainbow[hueIdx];
       htSetAllRgb(c[0], c[1], c[2]);
+      // Tick the 7-seg counter in lockstep with the rainbow: each new
+      // color shows the next number on the 5-digit panel.
+      seg7::printFloat(segCounter);
+      // Random increment in [minInc, 0.1]. minInc grows with the integer
+      // part so the smallest step is always at least one visible LSB on
+      // the 5-digit panel (e.g. value=12 → 3 fractional digits → min 0.001).
+      float minInc;
+      uint32_t v = (uint32_t)segCounter;
+      if      (v >= 10000) minInc = 1.0f;     // no fractional cells
+      else if (v >= 1000)  minInc = 0.1f;     // 1 fractional digit
+      else if (v >= 100)   minInc = 0.01f;    // 2 fractional digits
+      else if (v >= 10)    minInc = 0.001f;   // 3 fractional digits
+      else                 minInc = 0.0001f;  // 4 fractional digits
+      const float maxInc = 0.1f;
+      if (minInc > maxInc) minInc = maxInc;
+      float t = (float)random(0, 10001) / 10000.0f;          // 0..1
+      segCounter += minInc + t * (maxInc - minInc);
     }
   }
 
@@ -666,3 +681,201 @@ void loop() {
     setupOta();
   }
 }
+
+// ── 5-digit 7-segment display ──────────────────────────────────────────────
+// Wired to the same HT16K33 chip, sharing ROW lines with the 14-seg
+// backpack but using its own COM lines. Bit map confirmed with the segscan
+// (see chat log): every 7-seg segment found on a single ROW, regardless of
+// which COM the character lives on.
+//
+//   segment  ROW (bit)
+//     A   →  ROW 5   (also F on the 14-seg — different COM, no conflict)
+//     B   →  ROW 9   (also I on the 14-seg)
+//     C   →  ROW 0   (also A on the 14-seg)
+//     D   →  ROW10   (also J on the 14-seg)
+//     E   →  ROW 1   (also B on the 14-seg)
+//     F   →  ROW 8   (also H on the 14-seg)
+//     G   →  ROW 6   (also G1 on the 14-seg)
+//     DP  →  ROW 2   (also C on the 14-seg)
+namespace seg7 {
+
+static constexpr uint16_t A  = 1u << 5;
+static constexpr uint16_t B  = 1u << 9;
+static constexpr uint16_t C  = 1u << 0;
+static constexpr uint16_t D  = 1u << 10;
+static constexpr uint16_t E  = 1u << 1;
+static constexpr uint16_t F  = 1u << 8;
+static constexpr uint16_t G  = 1u << 6;
+static constexpr uint16_t DP = 1u << 2;
+
+// Left-to-right COM index for each character cell. Confirmed with the
+// segscan by lighting segment A (bit 5) on each candidate COM and noting
+// which physical digit lit up:
+//   cell 0 (far left)  → COM 7
+//   cell 1             → COM 6
+//   cell 2             → COM 5
+//   cell 3             → COM 3   (note: COM 4 is skipped on this wiring)
+//   cell 4 (far right) → COM 2
+static constexpr uint8_t kComs[] = {7, 6, 5, 3, 2};
+static constexpr uint8_t kNumDigits = sizeof(kComs) / sizeof(kComs[0]);
+
+// Standard 7-seg glyphs. Returns 0 for "blank" or unknown chars.
+static uint16_t encode(char c) {
+  switch (c) {
+    case '0': return A | B | C | D | E | F;
+    case '1': return B | C;
+    case '2': return A | B | G | E | D;
+    case '3': return A | B | G | C | D;
+    case '4': return F | G | B | C;
+    case '5': return A | F | G | C | D;
+    case '6': return A | F | G | E | C | D;
+    case '7': return A | B | C;
+    case '8': return A | B | C | D | E | F | G;
+    case '9': return A | B | C | D | F | G;
+    case '-': return G;
+    case '_': return D;
+    case ' ': return 0;
+    case 'A': case 'a': return A | B | C | E | F | G;
+    case 'b':          return C | D | E | F | G;
+    case 'C': case 'c': return A | D | E | F;
+    case 'd':          return B | C | D | E | G;
+    case 'E': case 'e': return A | D | E | F | G;
+    case 'F': case 'f': return A | E | F | G;
+    case 'H': case 'h': return B | C | E | F | G;
+    case 'L': case 'l': return D | E | F;
+    case 'P': case 'p': return A | B | E | F | G;
+    case 'r':          return E | G;
+    case 'o':          return C | D | E | G;
+    case 'S': case 's': return A | F | G | C | D;   // same shape as '5'
+    default:           return 0;
+  }
+}
+
+// Render a left-padded string across the panel. `s` may contain '.'
+// characters which are folded into the *previous* glyph's DP segment
+// (so "12.34" fits in 4 cells, not 5). Extra characters are truncated;
+// missing characters are blank-padded on the LEFT.
+static void writeText(const char *s) {
+  // First pass: pack into a (glyph, dp) buffer of size kNumDigits, right-
+  // aligned (so "12" → "   12", "12.34" → " 12.34").
+  uint16_t glyphs[kNumDigits];
+  bool     dps[kNumDigits];
+  for (uint8_t i = 0; i < kNumDigits; i++) { glyphs[i] = 0; dps[i] = false; }
+
+  // Walk source right-to-left, filling buffer from the right.
+  size_t len = strlen(s);
+  int8_t out = (int8_t)kNumDigits - 1;
+  for (int i = (int)len - 1; i >= 0 && out >= 0; i--) {
+    char c = s[i];
+    if (c == '.') {
+      // Attach DP to the next non-dot char to the left, written into the
+      // current output cell (we don't consume an output slot for '.').
+      if (i == 0) break;
+      // Find the next non-dot char to the left.
+      int j = i - 1;
+      while (j >= 0 && s[j] == '.') j--;
+      if (j < 0) break;
+      glyphs[out] = encode(s[j]);
+      dps[out]    = true;
+      out--;
+      i = j;       // outer loop will i-- past this char
+    } else {
+      glyphs[out] = encode(c);
+      out--;
+    }
+  }
+
+  // Second pass: write each cell to its COM, with DP folded in.
+  for (uint8_t i = 0; i < kNumDigits; i++) {
+    uint16_t segs = glyphs[i] | (dps[i] ? DP : 0);
+    htWriteDigit(kComs[i], segs);
+  }
+}
+
+// Render a float with as many fractional digits as will fit. Negative
+// values consume one cell for '-'. If the integer part alone overflows
+// the panel width, displays "-----" (overflow).
+//
+//   value      → 5-cell render
+//   3.14159    → "3.142" (rounded)
+//   -3.14159   → "-3.14"
+//   1234.5     → "1234.5" (uses all 5 cells, no fractional truncation)
+//   12345.6    → "12345"  (no room for '.' / fractional, integer fits)
+//   123456.7   → "-----"  (overflow)
+static void printFloat(float value) {
+  // Sign.
+  bool neg = value < 0;
+  if (neg) value = -value;
+
+  // Integer-part digit count (at least 1, for "0").
+  uint32_t intPart = (uint32_t)value;
+  uint8_t  intDigits = 1;
+  for (uint32_t t = intPart; t >= 10; t /= 10) intDigits++;
+
+  // Cells available for the integer part.
+  uint8_t budget = kNumDigits - (neg ? 1 : 0);
+  if (intDigits > budget) {
+    // Overflow: print "-" filled across the panel.
+    char buf[kNumDigits + 1];
+    for (uint8_t i = 0; i < kNumDigits; i++) buf[i] = '-';
+    buf[kNumDigits] = '\0';
+    writeText(buf);
+    return;
+  }
+
+  // Fractional cells = leftover after sign + integer digits. The '.' is
+  // free (folded into the previous cell's DP).
+  uint8_t fracDigits = budget - intDigits;
+
+  // Round to `fracDigits` decimals.
+  float scale = 1.0f;
+  for (uint8_t i = 0; i < fracDigits; i++) scale *= 10.0f;
+  uint32_t scaled = (uint32_t)(value * scale + 0.5f);
+
+  // Re-extract integer & fractional parts after rounding (rounding may
+  // have bumped intPart, which could in turn overflow — re-check).
+  uint32_t newIntPart  = scaled / (uint32_t)scale;
+  uint32_t newFracPart = scaled % (uint32_t)scale;
+  uint8_t  newIntDigits = 1;
+  for (uint32_t t = newIntPart; t >= 10; t /= 10) newIntDigits++;
+  if (newIntDigits > budget) {
+    char buf[kNumDigits + 1];
+    for (uint8_t i = 0; i < kNumDigits; i++) buf[i] = '-';
+    buf[kNumDigits] = '\0';
+    writeText(buf);
+    return;
+  }
+
+  // Format into a string. Worst case: '-' + intDigits + '.' + fracDigits.
+  char buf[16];
+  int  pos = 0;
+  if (neg) buf[pos++] = '-';
+  // Integer part.
+  char tmp[12];
+  int  tlen = 0;
+  if (newIntPart == 0) tmp[tlen++] = '0';
+  while (newIntPart > 0) { tmp[tlen++] = (char)('0' + newIntPart % 10); newIntPart /= 10; }
+  while (tlen > 0) buf[pos++] = tmp[--tlen];
+  // Fractional part.
+  if (fracDigits > 0) {
+    buf[pos++] = '.';
+    // Zero-pad on the left of the fractional digits.
+    char ftmp[12];
+    int  flen = 0;
+    for (uint8_t i = 0; i < fracDigits; i++) {
+      ftmp[flen++] = (char)('0' + newFracPart % 10);
+      newFracPart /= 10;
+    }
+    while (flen > 0) buf[pos++] = ftmp[--flen];
+  }
+  buf[pos] = '\0';
+  writeText(buf);
+}
+
+// Clear all 7-seg cells (leaves the 14-seg / RGB LEDs untouched).
+static void clear() {
+  for (uint8_t i = 0; i < kNumDigits; i++) htWriteDigit(kComs[i], 0);
+}
+
+}  // namespace seg7
+
