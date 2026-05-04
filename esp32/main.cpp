@@ -71,7 +71,7 @@ static constexpr uint16_t SEG_E_MASK  = 1u << 4;   // 0x0010
 static constexpr uint16_t SEG_F_MASK  = 1u << 5;   // 0x0020
 static constexpr uint16_t SEG_G1_MASK = 1u << 6;   // 0x0040
 static constexpr uint16_t SEG_G2_MASK = 1u << 7;   // 0x0080
-static constexpr uint16_t SEG_H_MASK  = 1u << 8;   // 0x0100  (free again)
+static constexpr uint16_t SEG_H_MASK  = 1u << 8;   // 0x0100  (R leg of LEDs #7/#8)
 static constexpr uint16_t SEG_I_MASK  = 1u << 9;   // 0x0200
 static constexpr uint16_t SEG_J_MASK  = 1u << 10;  // 0x0400
 static constexpr uint16_t SEG_M_MASK  = 1u << 11;  // 0x0800  (M on this backpack)
@@ -92,19 +92,29 @@ struct RgbLed {
   uint16_t bMask;
 };
 
-// Order is documented above. RGB mapping for the F/I/J pair:
-//   RED on F, GREEN on I, BLUE on J. Rotate if the wiring differs.
+// kRgbLeds[] is indexed by physical LED number minus one (so kRgbLeds[2]
+// is the LED silkscreened "#3"). Each entry stores the HT16K33 digit (=
+// COM line) the LED's common pin lives on, plus the segment masks for
+// its R, G, B legs.
+//
+// Quirks confirmed by running the startup chase:
+//   - F/I/J pair (#3/#4): {Dig1} = #3, {Dig0} = #4 for ALL three colors.
+//   - For #7..#10 the BLUE legs are crossed between pairs on the PCB:
+//     red/green of the H/G2 pair live on physical #7/#8, but their blue
+//     leg is wired to the C/D pair's DP segment, and vice versa. So
+//     bMask uses DP for #7/#8 (paired with H/G2 for r/g) and K for
+//     #9/#10 (paired with C/D for r/g).
 static constexpr RgbLed kRgbLeds[] = {
-  {0, SEG_A_MASK, SEG_G1_MASK, SEG_B_MASK},  // LED #1 — Dig1, A/B/G1 (G&B flipped)
-  {1, SEG_A_MASK, SEG_G1_MASK, SEG_B_MASK},  // LED #2 — Dig2, A/B/G1 (G&B flipped)
-  {0, SEG_J_MASK, SEG_I_MASK,  SEG_F_MASK},  // LED #3 — Dig1, F/I/J (R&B flipped)
-  {1, SEG_J_MASK, SEG_I_MASK,  SEG_F_MASK},  // LED #4 — Dig2, F/I/J (R&B flipped)
-  {0, SEG_E_MASK, SEG_M_MASK,  SEG_L_MASK},  // LED #5 — Dig1, E/M/L
-  {1, SEG_E_MASK, SEG_M_MASK,  SEG_L_MASK},  // LED #6 — Dig2, E/M/L
-  {0, SEG_D_MASK, SEG_C_MASK,  SEG_DP_MASK}, // LED #7 — Dig1, C/DP/D (R&B then G&B flipped)
-  {1, SEG_D_MASK, SEG_C_MASK,  SEG_DP_MASK}, // LED #8 — Dig2, C/DP/D (R&B then G&B flipped)
-  {0, SEG_H_MASK, SEG_G2_MASK, SEG_K_MASK},  // LED #9  — Dig1, G2/K/H (R&B then G&B flipped)
-  {1, SEG_H_MASK, SEG_G2_MASK, SEG_K_MASK},  // LED #10 — Dig2, G2/K/H (R&B then G&B flipped)
+  {0, SEG_A_MASK, SEG_G1_MASK, SEG_B_MASK},  // LED #1  — Dig0, A/B/G1
+  {1, SEG_A_MASK, SEG_G1_MASK, SEG_B_MASK},  // LED #2  — Dig1, A/B/G1
+  {1, SEG_J_MASK, SEG_I_MASK,  SEG_F_MASK},  // LED #3  — Dig1, F/I/J
+  {0, SEG_J_MASK, SEG_I_MASK,  SEG_F_MASK},  // LED #4  — Dig0, F/I/J
+  {0, SEG_E_MASK, SEG_M_MASK,  SEG_L_MASK},  // LED #5  — Dig0, E/M/L
+  {1, SEG_E_MASK, SEG_M_MASK,  SEG_L_MASK},  // LED #6  — Dig1, E/M/L
+  {0, SEG_H_MASK, SEG_G2_MASK, SEG_DP_MASK}, // LED #7  — Dig0, R/G=H/G2, B=DP (crossed)
+  {1, SEG_H_MASK, SEG_G2_MASK, SEG_DP_MASK}, // LED #8  — Dig1, R/G=H/G2, B=DP (crossed)
+  {1, SEG_D_MASK, SEG_C_MASK,  SEG_K_MASK},  // LED #9  — Dig1, R/G=C/D,  B=K  (crossed)
+  {0, SEG_D_MASK, SEG_C_MASK,  SEG_K_MASK},  // LED #10 — Dig0, R/G=C/D,  B=K  (crossed)
 };
 static constexpr uint8_t kNumRgbLeds = sizeof(kRgbLeds) / sizeof(kRgbLeds[0]);
 
@@ -183,30 +193,91 @@ static void setupHt16k33() {
   Serial.println("HT16K33: setup done");
 }
 
-// Startup self-test: blink each color channel three times in sequence
-// (red → green → blue) on every RGB LED.
+// Forward declarations for the 5-digit 7-seg helpers (definitions live in
+// the seg7 namespace at the bottom of the file). Declared here (rather
+// than just before setup()) because startupColorBlink() below uses them.
+namespace seg7 {
+  struct Map;
+  extern const Map kTop;
+  extern const Map kBot;
+  static void writeText(const Map &m, const char *s);
+  static void printFloat(const Map &m, float value);
+  static void clear(const Map &m);
+}
+
+// Startup self-test:
+//   1. For each color (R → G → B):
+//        a) "Chase": light RGB LEDs one at a time, 50 ms per LED, accumulating
+//           (so by the end all 10 are lit in that color). While the chase
+//           runs, the two 5-digit 7-seg displays cycle through the self-test
+//           frames in lockstep.
+//        b) Hold the all-on state briefly.
+//        c) Blink all-on / all-off three times (the original behaviour).
 static void startupColorBlink() {
-  struct Phase { bool r, g, b; const char *name; };
+  struct Phase { bool r, g, b; const char *name; const char *segFrame; };
   static const Phase phases[3] = {
-    {true,  false, false, "RED"},
-    {false, true,  false, "GREEN"},
-    {false, false, true,  "BLUE"},
+    {true,  false, false, "RED",   "8.8.8.8.8."},
+    {false, true,  false, "GREEN", "2.2222."   },
+    {false, false, true,  "BLUE",  "55.5.5.5"  },
   };
-  constexpr uint8_t kBlinks    = 3;
-  constexpr uint16_t kOnMs     = 250;
-  constexpr uint16_t kOffMs    = 250;
-  constexpr uint16_t kGapMs    = 300;  // pause between colors
+  constexpr uint16_t kChaseStepMs = 150;   // per-LED reveal during the chase
+  constexpr uint16_t kHoldMs      = 400;  // dwell with all 10 LEDs lit
+  constexpr uint8_t  kBlinks      = 3;
+  constexpr uint16_t kBlinkOnMs   = 250;
+  constexpr uint16_t kBlinkOffMs  = 250;
+  constexpr uint16_t kGapMs       = 300;  // pause between colors
 
   for (const auto &p : phases) {
-    Serial.printf("startup: blinking %s\n", p.name);
-    for (uint8_t i = 0; i < kBlinks; i++) {
-      htSetAllRgb(p.r, p.g, p.b);
-      delay(kOnMs);
-      htSetAllRgb(false, false, false);
-      delay(kOffMs);
+    Serial.printf("startup: %s chase + display frame '%s'\n", p.name, p.segFrame);
+
+    // Show this color's display frame for the duration of the chase.
+    seg7::writeText(seg7::kTop, p.segFrame);
+    seg7::writeText(seg7::kBot, p.segFrame);
+
+    // ── (a) chase: reveal LEDs 1..N one at a time ───────────────────────
+    uint16_t rgbBits[4] = {0, 0, 0, 0};
+    uint16_t rgbMask[4] = {0, 0, 0, 0};
+    // Pre-compute the per-digit RGB-controlled bit union so we can mask
+    // correctly under RGB_ACTIVE_LOW.
+    for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+      const RgbLed &led = kRgbLeds[i];
+      rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
     }
+    for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+      const RgbLed &led = kRgbLeds[i];
+      uint16_t colorMask = (p.r ? led.rMask : 0)
+                         | (p.g ? led.gMask : 0)
+                         | (p.b ? led.bMask : 0);
+      rgbBits[led.digit] |= colorMask;
+      // Push the two RGB-bearing digits (the others are seg7-only).
+      for (uint8_t d = 0; d < 4; d++) {
+        if (rgbMask[d] == 0) continue;
+        uint16_t segs = rgbBits[d];
+#if RGB_ACTIVE_LOW
+        segs = (~segs) & rgbMask[d];
+#endif
+        htWriteDigit(d, segs);
+      }
+      delay(kChaseStepMs);
+    }
+
+    // ── (b) hold all-on briefly ─────────────────────────────────────────
+    delay(kHoldMs);
+
+    // ── (c) blink three times ───────────────────────────────────────────
+    for (uint8_t i = 0; i < kBlinks; i++) {
+      htSetAllRgb(false, false, false);
+      delay(kBlinkOffMs);
+      htSetAllRgb(p.r, p.g, p.b);
+      delay(kBlinkOnMs);
+    }
+    htSetAllRgb(false, false, false);
     delay(kGapMs);
   }
+
+  // Leave the 7-seg displays clear at the end so loop()'s idle state is clean.
+  seg7::clear(seg7::kTop);
+  seg7::clear(seg7::kBot);
 }
 
 // Onboard LED on GPIO8 (active-low). Free again now that I2C lives on
@@ -214,6 +285,11 @@ static void startupColorBlink() {
 #ifndef ONBOARD_LED_PIN
 #define ONBOARD_LED_PIN 8
 #endif
+
+static inline void setupLed() {
+  pinMode(ONBOARD_LED_PIN, OUTPUT);
+  digitalWrite(ONBOARD_LED_PIN, HIGH);  // off (active-low)
+}
 
 // ── Passive buzzer ─────────────────────────────────────────────────────────
 // Driven via Arduino-ESP32's tone() (LEDC under the hood). GPIO 10 is a
@@ -256,8 +332,9 @@ static void startupBeep() {
 
 // ── Buttons ────────────────────────────────────────────────────────────────
 // Two momentary push-buttons to GND, using internal pull-ups (active-low).
-// Either one being pressed gates the loop() animation — see runSequence()
-// below. Override pins with -DBTN_A_PIN=<n> -DBTN_B_PIN=<n>.
+// Either one being pressed gates the flicker + counter animation in
+// loop(); when neither is pressed the panel stays blank. Override pins
+// with -DBTN_A_PIN=<n> -DBTN_B_PIN=<n>.
 #ifndef BTN_A_PIN
 #define BTN_A_PIN 6
 #endif
@@ -276,13 +353,6 @@ static inline bool anyButtonPressed() {
 }
 
 
-static inline void setupLed() {
-  pinMode(ONBOARD_LED_PIN, OUTPUT);
-  digitalWrite(ONBOARD_LED_PIN, HIGH);  // off (active-low)
-}
-static inline void setLed(bool on) {
-  digitalWrite(ONBOARD_LED_PIN, on ? LOW : HIGH);
-}
 
 // ── Segment-bit scanner (debug aid) ────────────────────────────────────────
 // Define SEGMENT_SCAN=1 in the build env to enable the bit-mapping scanner.
@@ -659,17 +729,6 @@ static inline void checkAndUpdateFromGithub() {
 }
 #endif
 
-// Forward declarations for the 5-digit 7-seg helpers (definitions live in
-// the seg7 namespace at the bottom of the file).
-namespace seg7 {
-  struct Map;
-  extern const Map kTop;
-  extern const Map kBot;
-  static void writeText(const Map &m, const char *s);
-  static void printFloat(const Map &m, float value);
-  static void clear(const Map &m);
-}
-
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -684,21 +743,7 @@ void setup() {
   runSegmentScan();             // never returns; for bit-mapping debug
 #endif
   startupBeep();                // audible "I'm alive"
-  startupColorBlink();          // R / G / B self-test
-  // 7-seg self-test, three frames so every segment + every DP is exercised
-  // on BOTH 5-digit displays (they share COMs but use disjoint ROW bits):
-  //   1) "8.8.8.8.8."  → every segment + every DP on
-  //   2) "2.2222."     → digit '2' on every cell, DP on the leftmost 2
-  //   3) "55.5.5.5"    → digit '5' on every cell, DP on the rightmost 3
-  seg7::writeText(seg7::kTop, "8.8.8.8.8.");
-  seg7::writeText(seg7::kBot, "8.8.8.8.8.");
-  delay(700);
-  seg7::writeText(seg7::kTop, "2.2222.");
-  seg7::writeText(seg7::kBot, "2.2222.");
-  delay(700);
-  seg7::writeText(seg7::kTop, "55.5.5.5");
-  seg7::writeText(seg7::kBot, "55.5.5.5");
-  delay(700);
+  startupColorBlink();          // R / G / B chase + 7-seg frames + blink
   connectWifi();
   checkAndUpdateFromGithub();   // may reboot into new firmware
   setupOta();
