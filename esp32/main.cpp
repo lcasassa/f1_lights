@@ -352,6 +352,76 @@ static inline bool anyButtonPressed() {
   return (digitalRead(BTN_A_PIN) == LOW) || (digitalRead(BTN_B_PIN) == LOW);
 }
 
+// ── OTA progress visualisation ─────────────────────────────────────────────
+// Map a 0..100 percent value to the 10-LED panel:
+//   - Each LED represents 10 percentage points; "fully white" = that 10%
+//     slice is complete.
+//   - LEDs fill in from the outside in: physical order
+//     1 → 10 → 2 → 9 → 3 → 8 → 4 → 7 → 5 → 6.
+//   - The in-progress LED (the one currently between 0 % and 10 % of its
+//     slice) cycles through a fixed 10-entry palette, one colour per 1 %
+//     of overall progress, ending on white.
+static constexpr uint8_t kOtaFillOrder[kNumRgbLeds] = {
+  0, 9, 1, 8, 2, 7, 3, 6, 4, 5,   // physical LED index (0-based)
+};
+
+// Per-1 % colour palette for the in-progress LED. Boolean R/G/B because the
+// HT16K33 has no per-segment PWM; the last entries duplicate "white" so
+// the LED settles on white before the next one starts filling.
+struct OtaColor { bool r, g, b; };
+static constexpr OtaColor kOtaSubsteps[10] = {
+  {false, false, false}, // 0 — off
+  {true,  false, false}, // 1 — red
+  {true,  true,  false}, // 2 — yellow
+  {true,  false, false}, // 3 — red
+  {true,  true,  false}, // 4 — yellow
+  {false, true,  false}, // 5 — green
+  {false, true,  true},  // 6 — cyan
+  {false, false, true},  // 7 — blue
+  {true,  false, true},  // 8 — magenta
+  {true,  true,  true},  // 9 — white
+};
+
+// Render `percent` (clamped to 0..100) onto the RGB panel.
+static void showOtaProgress(int percent) {
+  if (percent < 0)   percent = 0;
+  if (percent > 100) percent = 100;
+  const uint8_t filled    = (uint8_t)(percent / 10);   // 0..10 white LEDs
+  const uint8_t remainder = (uint8_t)(percent % 10);   // 0..9 substep
+
+  // Per-digit accumulators.
+  uint16_t rgbBits[4] = {0, 0, 0, 0};
+  uint16_t rgbMask[4] = {0, 0, 0, 0};
+  for (uint8_t i = 0; i < kNumRgbLeds; i++) {
+    const RgbLed &led = kRgbLeds[i];
+    rgbMask[led.digit] |= led.rMask | led.gMask | led.bMask;
+  }
+
+  for (uint8_t slot = 0; slot < kNumRgbLeds; slot++) {
+    const RgbLed &led = kRgbLeds[kOtaFillOrder[slot]];
+    bool r, g, b;
+    if (slot < filled) {
+      r = g = b = true;                          // fully white
+    } else if (slot == filled) {
+      const OtaColor &c = kOtaSubsteps[remainder];
+      r = c.r; g = c.g; b = c.b;                 // in-progress color
+    } else {
+      r = g = b = false;                         // not started yet
+    }
+    if (r) rgbBits[led.digit] |= led.rMask;
+    if (g) rgbBits[led.digit] |= led.gMask;
+    if (b) rgbBits[led.digit] |= led.bMask;
+  }
+
+  for (uint8_t d = 0; d < 4; d++) {
+    if (rgbMask[d] == 0) continue;
+    uint16_t segs = rgbBits[d];
+#if RGB_ACTIVE_LOW
+    segs = (~segs) & rgbMask[d];
+#endif
+    htWriteDigit(d, segs);
+  }
+}
 
 
 // ── Segment-bit scanner (debug aid) ────────────────────────────────────────
@@ -597,23 +667,22 @@ static void setupOta() {
       otaInProgress = true;
       Serial.printf("OTA: start (%s)\n",
                     ArduinoOTA.getCommand() == U_FLASH ? "sketch" : "fs");
-      htFillAll(0xFF);                  // begin with all LEDs on
+      htSetAllRgb(false, false, false);   // blank the panel before we start
+      showOtaProgress(0);
     })
     .onEnd([]() {
       Serial.println("\nOTA: done");
-      htFillAll(0xFF);                  // leave all on before reboot
+      showOtaProgress(100);               // all white before reboot
       otaInProgress = false;
     })
     .onProgress([](unsigned int p, unsigned int t) {
-      Serial.printf("OTA: %u%%\r", (p * 100) / t);
-      // Toggle every 1% of progress.
-      static int lastBucket = -1;
-      static bool on = true;
-      int bucket = (int)((uint64_t)p * 100 / t);  // 0..100 = every 1%
-      if (bucket != lastBucket) {
-        lastBucket = bucket;
-        on = !on;
-        htFillAll(on ? 0xFF : 0x00);
+      if (t == 0) return;
+      int pct = (int)((uint64_t)p * 100 / t);
+      static int lastPct = -1;
+      if (pct != lastPct) {
+        lastPct = pct;
+        Serial.printf("OTA: %d%%\r", pct);
+        showOtaProgress(pct);
       }
     })
     .onError([](ota_error_t e) {
@@ -681,7 +750,8 @@ static void checkAndUpdateFromGithub() {
   }
 
   Serial.println("OTA-check: new version available, downloading...");
-  htFillAll(0xFF);                              // signal: update starting
+  htSetAllRgb(false, false, false);             // blank panel before progress
+  showOtaProgress(0);
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -690,17 +760,16 @@ static void checkAndUpdateFromGithub() {
   httpUpdate.rebootOnUpdate(true);
   httpUpdate.onStart([]() {
     Serial.println("HTTPUpdate: start");
+    showOtaProgress(0);
   });
   httpUpdate.onProgress([](int cur, int total) {
-    static int lastBucket = -1;
-    static bool on = true;
     if (total <= 0) return;
-    int bucket = (int)((int64_t)cur * 100 / total);  // every 1%
-    if (bucket != lastBucket) {
-      lastBucket = bucket;
-      on = !on;
-      htFillAll(on ? 0xFF : 0x00);
-      if (bucket % 10 == 0) Serial.printf("HTTPUpdate: %d%%\n", bucket);
+    int pct = (int)((int64_t)cur * 100 / total);
+    static int lastPct = -1;
+    if (pct != lastPct) {
+      lastPct = pct;
+      showOtaProgress(pct);
+      if (pct % 10 == 0) Serial.printf("HTTPUpdate: %d%%\n", pct);
     }
   });
   httpUpdate.onError([](int err) {
