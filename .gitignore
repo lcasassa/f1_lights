@@ -50,3 +50,7 @@ Thumbs.db
 
 # Local secrets (WiFi creds for ESP32 OTA)
 esp32/wifi_credentials.h
+# Web (Vite + npm)
+web/node_modules/
+web/dist/
+web/public/
