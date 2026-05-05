@@ -32,8 +32,8 @@
 static constexpr uint32_t kWifiArmHoldMs = 2000;
 
 // Both buttons must stay pressed continuously for this long at boot to
-// trigger the factory-reset (wipe stored WiFi credentials). Counted
-// from when the WiFi-arm threshold is reached.
+// also wipe the stored WiFi credentials and force the provisioning
+// portal (factory reset). Same hold, longer duration.
 static constexpr uint32_t kFactoryResetHoldMs = 10000;
 
 // Set in setup() based on the boot-time A+B hold; controls whether
@@ -43,25 +43,37 @@ static bool g_wifiArmedBoot = false;
 // session. Cleared on disconnect; re-armed once we re-associate.
 static bool g_otaReady      = false;
 
-// Block until either both buttons are released or the hold deadline is
-// reached. Returns true iff the user held A+B for the full duration.
-// The RGB ring fills red as a visible countdown.
-static bool waitForFactoryResetHold() {
-  Serial.println("boot: keep A+B held for 10 s for factory reset...");
+// Single boot-time A+B hold sequence. Shows a 10 s progress ramp on the
+// RGB ring exactly once and reports back what the user committed to:
+//   release < 2 s   → returns {armed=false, eraseCreds=false}  (game starts now)
+//   release 2..10 s → returns {armed=true,  eraseCreds=false}  (blocking WiFi + portal fallback)
+//   held >= 10 s    → returns {armed=true,  eraseCreds=true }  (also wipes creds → portal)
+struct BootHoldResult { bool armed; bool eraseCreds; };
+static BootHoldResult runBootHoldSequence() {
+  Serial.println("boot: A+B held — release before 2 s = no WiFi block, "
+                 "2..10 s = WiFi+portal, 10 s = factory reset");
   const uint32_t start = millis();
+  uint32_t elapsed = 0;
   while (peripherals::bothButtonsPressed()) {
-    uint32_t elapsed = millis() - start;
+    elapsed = millis() - start;
     if (elapsed >= kFactoryResetHoldMs) {
-      rgb_panel::showOtaProgress(100);   // all-red = committed
-      return true;
+      rgb_panel::showOtaProgress(100);   // committed
+      Serial.println("boot: held >=10 s → factory reset + portal");
+      return {true, true};
     }
     int pct = (int)((uint64_t)elapsed * 100 / kFactoryResetHoldMs);
     rgb_panel::showOtaProgress(pct);
-    delay(50);
+    delay(20);
   }
   rgb_panel::blank();
-  Serial.println("boot: A+B released early, factory reset cancelled");
-  return false;
+  if (elapsed >= kWifiArmHoldMs) {
+    Serial.printf("boot: held %lu ms → WiFi armed (blocking + portal fallback)\n",
+                  (unsigned long)elapsed);
+    return {true, false};
+  }
+  Serial.printf("boot: held %lu ms (<2 s) → background WiFi, game starts now\n",
+                (unsigned long)elapsed);
+  return {false, false};
 }
 
 void setup() {
@@ -82,31 +94,13 @@ void setup() {
   animation::startupBlink();
 
   // Sample both buttons NOW (before any potential WiFi association eats
-  // wall clock) to decide the boot path:
-  //
-  //   not held       → background WiFi connect, game starts immediately
-  //   held >= 2 s    → blocking WiFi connect + provisioning portal armed
-  //                    + GitHub self-update check
-  //   held >= 12 s   → also wipe stored WiFi credentials (factory reset)
+  // wall clock) and run the single 10 s ramp animation that decides the
+  // boot path. See runBootHoldSequence() for the threshold semantics.
   if (peripherals::bothButtonsPressed()) {
-    Serial.println("boot: A+B held — keep holding 2 s to arm WiFi/OTA path");
-    const uint32_t armStart = millis();
-    while (peripherals::bothButtonsPressed() &&
-           millis() - armStart < kWifiArmHoldMs) {
-      // Visual ramp on the RGB ring while the user makes up their mind.
-      int pct = (int)((uint64_t)(millis() - armStart) * 100 / kWifiArmHoldMs);
-      rgb_panel::showOtaProgress(pct);
-      delay(20);
-    }
-    if (peripherals::bothButtonsPressed()) {
-      g_wifiArmedBoot = true;
-      Serial.println("boot: WiFi armed (blocking connect + provisioning portal)");
-      if (waitForFactoryResetHold()) {
-        wifi_ota::eraseStoredCredentials();
-      }
-    } else {
-      rgb_panel::blank();
-      Serial.println("boot: A+B released before 2 s, WiFi will connect in background");
+    BootHoldResult r = runBootHoldSequence();
+    g_wifiArmedBoot = r.armed;
+    if (r.eraseCreds) {
+      wifi_ota::eraseStoredCredentials();
     }
   }
 
