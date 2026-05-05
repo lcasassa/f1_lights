@@ -35,6 +35,13 @@ void connectOrProvision(bool provisioningAllowed);
 // the provisioning portal becomes the only way back online.
 void eraseStoredCredentials();
 
+// Bring up the SoftAP + captive-portal webserver so the user can pick an
+// SSID and type the password. Blocks until the user submits valid creds
+// (which WiFiManager then writes to NVS) or the portal times out (in
+// which case the device reboots). Sets `inApMode` while the portal is
+// open so loop() suppresses its own WiFi reconnect attempts.
+void startProvisioningPortal();
+
 // Start the ArduinoOTA receiver (mDNS hostname + password from
 // wifi_credentials.h). Call after WiFi is up.
 void setupArduinoOta();

@@ -29,12 +29,16 @@
 // Both buttons must stay pressed continuously for this long at boot to
 // arm the blocking WiFi+OTA path (otherwise WiFi connects in the
 // background and the game starts immediately).
-static constexpr uint32_t kWifiArmHoldMs = 2000;
+static constexpr uint32_t kWifiArmHoldMs = 1000;
 
 // Both buttons must stay pressed continuously for this long at boot to
 // also wipe the stored WiFi credentials and force the provisioning
 // portal (factory reset). Same hold, longer duration.
-static constexpr uint32_t kFactoryResetHoldMs = 10000;
+static constexpr uint32_t kFactoryResetHoldMs = 5000;
+
+// Max time we'll spend on the blocking association attempt during the
+// armed boot path before declaring failure and dropping into the portal.
+static constexpr uint32_t kArmedConnectTimeoutMs = 30000;
 
 // Set in setup() based on the boot-time A+B hold; controls whether
 // loop() is allowed to make blocking reconnect calls.
@@ -43,37 +47,122 @@ static bool g_wifiArmedBoot = false;
 // session. Cleared on disconnect; re-armed once we re-associate.
 static bool g_otaReady      = false;
 
-// Single boot-time A+B hold sequence. Shows a 10 s progress ramp on the
-// RGB ring exactly once and reports back what the user committed to:
-//   release < 2 s   → returns {armed=false, eraseCreds=false}  (game starts now)
-//   release 2..10 s → returns {armed=true,  eraseCreds=false}  (blocking WiFi + portal fallback)
-//   held >= 10 s    → returns {armed=true,  eraseCreds=true }  (also wipes creds → portal)
-struct BootHoldResult { bool armed; bool eraseCreds; };
-static BootHoldResult runBootHoldSequence() {
-  Serial.println("boot: A+B held — release before 2 s = no WiFi block, "
-                 "2..10 s = WiFi+portal, 10 s = factory reset");
+// Phase 1 of the boot-time A+B hold: silent 1 s wait — no LED feedback,
+// just poll the buttons. Returns the total time A+B were held. If the
+// user releases before kWifiArmHoldMs the caller treats it as "not
+// armed" and skips the rest.
+static uint32_t bootRampPhase() {
+  Serial.println("boot: A+B held — silent 1 s wait, release before that for game-only mode");
   const uint32_t start = millis();
-  uint32_t elapsed = 0;
-  while (peripherals::bothButtonsPressed()) {
-    elapsed = millis() - start;
-    if (elapsed >= kFactoryResetHoldMs) {
-      rgb_panel::showOtaProgress(100);   // committed
-      Serial.println("boot: held >=10 s → factory reset + portal");
-      return {true, true};
-    }
-    int pct = (int)((uint64_t)elapsed * 100 / kFactoryResetHoldMs);
-    rgb_panel::showOtaProgress(pct);
+  while (peripherals::bothButtonsPressed() &&
+         (millis() - start) < kWifiArmHoldMs) {
     delay(20);
   }
-  rgb_panel::blank();
-  if (elapsed >= kWifiArmHoldMs) {
-    Serial.printf("boot: held %lu ms → WiFi armed (blocking + portal fallback)\n",
-                  (unsigned long)elapsed);
-    return {true, false};
+  return millis() - start;
+}
+
+// Phase 2 of the boot-time A+B hold (only entered after the 1 s
+// threshold). Tries to associate with stored credentials in the
+// background while:
+//   - blinking yellow on every LED to indicate "connecting…"
+//   - holding solid green once associated
+//   - watching A+B; if held continuously to kFactoryResetHoldMs total
+//     since boot start, abort and signal factory-reset (this check
+//     wins over a successful WiFi connect, so the user can always
+//     force the portal by just keeping the buttons down)
+// Returns one of:
+//   ARMED_CONNECTED   WiFi up + buttons released, continue with OTA setup
+//   ARMED_FAILED      solid red flashed, no WiFi, drop into portal
+//   FACTORY_RESET     blue blinks, wipe creds + drop into portal
+enum class BootOutcome { ARMED_CONNECTED, ARMED_FAILED, FACTORY_RESET };
+
+static BootOutcome bootArmedPhase(uint32_t holdStartMs) {
+  Serial.println("boot: 1 s threshold — yellow blink, attempting WiFi connect "
+                 "(keep holding 5 s total to factory-reset)");
+  // Kick off association without blocking; we'll poll WiFi.status().
+  wifi_ota::beginWifiNonBlocking();
+
+  const uint32_t connectStart = millis();
+  uint32_t lastBlinkMs = 0;
+  bool blinkOn = false;
+  bool connected = false;
+
+  while (true) {
+    const uint32_t now = millis();
+
+    // Factory-reset has priority: A+B held continuously since holdStartMs
+    // for >=5 s wins even if WiFi has already associated. Any release
+    // since holdStartMs cancels it (peripherals::bothButtonsPressed()
+    // is the live state, so a release here breaks the hold streak).
+    if (peripherals::bothButtonsPressed() &&
+        (now - holdStartMs) >= kFactoryResetHoldMs) {
+      Serial.println("boot: held >=5 s → factory reset path "
+                     "(overrides WiFi-connected outcome)");
+      rgb_panel::blank();
+      return BootOutcome::FACTORY_RESET;
+    }
+
+    // Detect first transition to associated → switch ring to solid green
+    // and stop the yellow blink. We then keep polling for either button
+    // release (→ ARMED_CONNECTED) or the 5 s factory-reset threshold.
+    if (!connected && WiFi.status() == WL_CONNECTED) {
+      connected = true;
+      Serial.printf("boot: WiFi connected, IP=%s\n",
+                    WiFi.localIP().toString().c_str());
+      rgb_panel::setAll(false, true, false);   // solid green
+    }
+
+    if (connected) {
+      // Wait for the user to let go before committing to the connected
+      // outcome. While they keep holding, the factory-reset check above
+      // is still ticking.
+      if (!peripherals::bothButtonsPressed()) {
+        delay(200);                            // brief green dwell
+        rgb_panel::blank();
+        return BootOutcome::ARMED_CONNECTED;
+      }
+      delay(10);
+      continue;
+    }
+
+    // Still connecting: yellow heartbeat (~4 Hz) + 30 s timeout.
+    if (now - connectStart >= kArmedConnectTimeoutMs) {
+      Serial.println("boot: WiFi connect timed out → portal");
+      rgb_panel::setAll(true, false, false);  // red
+      delay(600);
+      rgb_panel::blank();
+      return BootOutcome::ARMED_FAILED;
+    }
+    if (now - lastBlinkMs >= 125) {
+      lastBlinkMs = now;
+      blinkOn = !blinkOn;
+      if (blinkOn) rgb_panel::setAll(true, true, false);  // yellow
+      else         rgb_panel::blank();
+    }
+    delay(10);
   }
-  Serial.printf("boot: held %lu ms (<2 s) → background WiFi, game starts now\n",
-                (unsigned long)elapsed);
-  return {false, false};
+}
+
+// Short blue-blink confirmation that we're committing to the portal
+// (called for both FACTORY_RESET and the post-failure portal entry).
+// In the factory-reset case we tear down any pending STA association
+// FIRST so the portal comes up cold — no lingering WiFi.begin() retry,
+// no "try with old creds one more time", just the AP.
+static void bootEnterPortal(bool eraseCreds) {
+  if (eraseCreds) {
+    // Cancel the background associate kicked off by bootArmedPhase
+    // before we even start the blink, so the radio isn't fighting us.
+    WiFi.disconnect(/*wifioff=*/true, /*eraseap=*/false);
+    Serial.println("boot: factory-reset path — aborting any pending STA, going straight to portal");
+  }
+  if (eraseCreds) {
+    wifi_ota::eraseStoredCredentials();
+  }
+  // runProvisioningPortal calls WiFiManager::startConfigPortal() which
+  // brings up the SoftAP directly — it does NOT try to associate first
+  // (that would require autoConnect()). So with creds wiped above, this
+  // path is guaranteed to land in the portal without any STA attempt.
+  wifi_ota::startProvisioningPortal();
 }
 
 void setup() {
@@ -94,18 +183,40 @@ void setup() {
   animation::startupBlink();
 
   // Sample both buttons NOW (before any potential WiFi association eats
-  // wall clock) and run the single 10 s ramp animation that decides the
-  // boot path. See runBootHoldSequence() for the threshold semantics.
+  // wall clock) and run the two-phase A+B hold sequence:
+  //   phase 1 (0..1 s):  silent wait; release ends boot decision
+  //   phase 2 (1 s..):   yellow blink while WiFi associates in the
+  //                      background; green = success, red = timeout,
+  //                      5 s total hold = blue blink + factory-reset
   if (peripherals::bothButtonsPressed()) {
-    BootHoldResult r = runBootHoldSequence();
-    g_wifiArmedBoot = r.armed;
-    if (r.eraseCreds) {
-      wifi_ota::eraseStoredCredentials();
+    const uint32_t holdStart = millis();
+    const uint32_t totalHeld = bootRampPhase();
+    if (totalHeld < kWifiArmHoldMs) {
+      // Released before the arm threshold → game-only mode.
+      g_wifiArmedBoot = false;
+    } else {
+      g_wifiArmedBoot = true;
+      switch (bootArmedPhase(holdStart)) {
+        case BootOutcome::ARMED_CONNECTED:
+          // WiFi up — finish OTA boot path below.
+          break;
+        case BootOutcome::ARMED_FAILED:
+          // STA timed out → portal (no creds wipe).
+          bootEnterPortal(/*eraseCreds=*/false);
+          break;
+        case BootOutcome::FACTORY_RESET:
+          // 5 s hold → wipe creds + portal.
+          bootEnterPortal(/*eraseCreds=*/true);
+          break;
+      }
     }
   }
 
   if (g_wifiArmedBoot) {
-    wifi_ota::connectOrProvision(/*provisioningAllowed=*/true);
+    // After bootArmedPhase() / bootEnterPortal() we either have an STA
+    // association (CONNECTED) or are coming back from the portal also
+    // associated. Either way: do the GitHub self-update check and arm
+    // ArduinoOTA.
     wifi_ota::checkAndUpdateFromGithub();
     wifi_ota::setupArduinoOta();
     g_otaReady = true;

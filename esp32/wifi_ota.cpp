@@ -112,6 +112,10 @@ void connectOrProvision(bool provisioningAllowed) {
   ESP.restart();
 }
 
+void startProvisioningPortal() {
+  runProvisioningPortal();
+}
+
 void eraseStoredCredentials() {
   Serial.println("WiFi: factory-reset — wiping saved STA credentials");
   // IDF-side STA SSID/PSK in NVS. Second `true` = eraseAP (NVS).
