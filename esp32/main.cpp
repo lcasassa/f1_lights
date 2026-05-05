@@ -27,8 +27,21 @@
 #endif
 
 // Both buttons must stay pressed continuously for this long at boot to
-// trigger the factory-reset (wipe stored WiFi credentials).
+// arm the blocking WiFi+OTA path (otherwise WiFi connects in the
+// background and the game starts immediately).
+static constexpr uint32_t kWifiArmHoldMs = 2000;
+
+// Both buttons must stay pressed continuously for this long at boot to
+// trigger the factory-reset (wipe stored WiFi credentials). Counted
+// from when the WiFi-arm threshold is reached.
 static constexpr uint32_t kFactoryResetHoldMs = 10000;
+
+// Set in setup() based on the boot-time A+B hold; controls whether
+// loop() is allowed to make blocking reconnect calls.
+static bool g_wifiArmedBoot = false;
+// True once setupArduinoOta() has been called against the current WiFi
+// session. Cleared on disconnect; re-armed once we re-associate.
+static bool g_otaReady      = false;
 
 // Block until either both buttons are released or the hold deadline is
 // reached. Returns true iff the user held A+B for the full duration.
@@ -68,22 +81,46 @@ void setup() {
 
   animation::startupBlink();
 
-  // Sample both buttons NOW (before WiFi association eats 30 s of wall
-  // clock) to decide whether to allow the provisioning portal when the
-  // saved credentials don't connect. Holding A+B at boot arms it; keep
-  // them held for a further 10 s to also wipe the stored credentials.
-  const bool provisioningAllowed = peripherals::bothButtonsPressed();
-  if (provisioningAllowed) {
-    Serial.println("boot: A+B held, provisioning portal armed");
-    if (waitForFactoryResetHold()) {
-      wifi_ota::eraseStoredCredentials();
-      // Forced into the portal — there are no creds left to try.
+  // Sample both buttons NOW (before any potential WiFi association eats
+  // wall clock) to decide the boot path:
+  //
+  //   not held       → background WiFi connect, game starts immediately
+  //   held >= 2 s    → blocking WiFi connect + provisioning portal armed
+  //                    + GitHub self-update check
+  //   held >= 12 s   → also wipe stored WiFi credentials (factory reset)
+  if (peripherals::bothButtonsPressed()) {
+    Serial.println("boot: A+B held — keep holding 2 s to arm WiFi/OTA path");
+    const uint32_t armStart = millis();
+    while (peripherals::bothButtonsPressed() &&
+           millis() - armStart < kWifiArmHoldMs) {
+      // Visual ramp on the RGB ring while the user makes up their mind.
+      int pct = (int)((uint64_t)(millis() - armStart) * 100 / kWifiArmHoldMs);
+      rgb_panel::showOtaProgress(pct);
+      delay(20);
+    }
+    if (peripherals::bothButtonsPressed()) {
+      g_wifiArmedBoot = true;
+      Serial.println("boot: WiFi armed (blocking connect + provisioning portal)");
+      if (waitForFactoryResetHold()) {
+        wifi_ota::eraseStoredCredentials();
+      }
+    } else {
+      rgb_panel::blank();
+      Serial.println("boot: A+B released before 2 s, WiFi will connect in background");
     }
   }
 
-  wifi_ota::connectOrProvision(provisioningAllowed);
-  wifi_ota::checkAndUpdateFromGithub();
-  wifi_ota::setupArduinoOta();
+  if (g_wifiArmedBoot) {
+    wifi_ota::connectOrProvision(/*provisioningAllowed=*/true);
+    wifi_ota::checkAndUpdateFromGithub();
+    wifi_ota::setupArduinoOta();
+    g_otaReady = true;
+  } else {
+    // Non-blocking: kick off association and let loop() finish the OTA
+    // setup once WL_CONNECTED arrives. Game starts now.
+    wifi_ota::beginWifiNonBlocking();
+    g_otaReady = false;
+  }
 
   // Boot diagnostics done — clear every status LED + display so the loop
   // starts from a clean slate. Anything still on at this point (LED #10
@@ -139,12 +176,34 @@ void loop() {
     s_lastActivityMs = millis();   // OTA traffic counts as activity
   }
 
-  // Auto-reconnect only in STA mode; the provisioning portal manages its
-  // own lifecycle and a reconnect attempt would tear it down.
-  if (!wifi_ota::inApMode && WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi: dropped, reconnecting...");
-    wifi_ota::connectOrProvision(/*provisioningAllowed=*/false);
-    wifi_ota::setupArduinoOta();
+  // WiFi maintenance — strategy depends on the boot-time arm flag.
+  //   armed:    blocking reconnect on disconnect (preserves OTA upload UX)
+  //   not armed: non-blocking begin, retry every 10 s; setupArduinoOta()
+  //             is deferred until association actually completes.
+  if (!wifi_ota::inApMode) {
+    const bool connected = (WiFi.status() == WL_CONNECTED);
+    if (!connected) {
+      g_otaReady = false;
+      if (g_wifiArmedBoot) {
+        Serial.println("WiFi: dropped, reconnecting (blocking)...");
+        wifi_ota::connectOrProvision(/*provisioningAllowed=*/false);
+        wifi_ota::setupArduinoOta();
+        g_otaReady = true;
+      } else {
+        static uint32_t s_lastBeginMs = 0;
+        const uint32_t nowMs = millis();
+        if (s_lastBeginMs == 0 || nowMs - s_lastBeginMs > 10000) {
+          s_lastBeginMs = nowMs;
+          wifi_ota::beginWifiNonBlocking();
+        }
+      }
+    } else if (!g_otaReady) {
+      // Non-blocking path just associated — finish OTA setup now.
+      Serial.printf("WiFi: connected (background), IP=%s\n",
+                    WiFi.localIP().toString().c_str());
+      wifi_ota::setupArduinoOta();
+      g_otaReady = true;
+    }
   }
 }
 

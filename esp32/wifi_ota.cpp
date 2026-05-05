@@ -57,6 +57,14 @@ bool connectWifi() {
   return true;
 }
 
+void beginWifiNonBlocking() {
+  WiFi.persistent(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(OTA_HOSTNAME);
+  WiFi.begin();                   // returns immediately; association runs in background
+  Serial.println("WiFi: background associate started (non-blocking)");
+}
+
 // Bring up the SoftAP + captive-portal webserver so the user can pick an
 // SSID and type the password. Blocks until the user submits valid creds
 // (which WiFiManager then writes to NVS) or the portal times out.

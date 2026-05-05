@@ -19,6 +19,11 @@ extern bool inApMode;
 // success, false after a 30 s timeout. No reboot.
 bool connectWifi();
 
+// Kick off STA association with the stored NVS credentials and return
+// immediately (no wait, no UI). Use this when you don't want to block
+// the main loop on WiFi — poll WiFi.status() from loop() instead.
+void beginWifiNonBlocking();
+
 // Convenience: try connectWifi(); on failure, if `provisioningAllowed`
 // is true, bring up the SoftAP + captive-portal webserver so the user
 // can pick an SSID and type the password (saved to NVS for next boot).
