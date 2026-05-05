@@ -13,6 +13,7 @@
 #include "ht16k33.h"
 #include "peripherals.h"
 #include "rgb_panel.h"
+#include "seg7.h"
 #include "segment_scan.h"
 #include "wifi_ota.h"
 
@@ -81,6 +82,14 @@ void setup() {
   wifi_ota::connectOrProvision(provisioningAllowed);
   wifi_ota::checkAndUpdateFromGithub();
   wifi_ota::setupArduinoOta();
+
+  // Boot diagnostics done — clear every status LED + display so the loop
+  // starts from a clean slate. Anything still on at this point (LED #10
+  // up-to-date, LED #5 lean-build, "Err"+code panel, …) was just a
+  // boot-time signal; the running device shouldn't keep showing it.
+  rgb_panel::blank();
+  seg7::clear(seg7::kTop);
+  seg7::clear(seg7::kBot);
 }
 
 void loop() {

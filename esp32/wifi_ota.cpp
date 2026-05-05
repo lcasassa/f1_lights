@@ -237,19 +237,18 @@ void checkAndUpdateFromGithub() {
   }
   Serial.printf("OTA-check: latest = '%s'\n", latest.c_str());
 
-  // Show running version on the top display, latest on the bottom.
-  // Truncate to 5 chars so the standard short-SHA (or any longer string)
-  // fits the 5-cell panel cleanly. The seg7 encoder handles 0-9 + a-f.
-  String runningShort = String(FIRMWARE_VERSION).substring(0, 5);
-  String latestShort  = latest.substring(0, 5);
-  seg7::writeText(seg7::kTop, runningShort.c_str());
-  seg7::writeText(seg7::kBot, latestShort.c_str());
-
   if (latest == FIRMWARE_VERSION) {
     Serial.println("OTA-check: already up to date");
     rgb_panel::setBusy(9, true);   // LED #10: "running latest" indicator
     return;
   }
+
+  // Out of date — show the *new* version (truncated to 5 chars to fit the
+  // 5-cell panel; the seg7 encoder handles 0-9 + a-f). Top display only;
+  // the bottom one stays blank so the new SHA is visually unambiguous.
+  String latestShort = latest.substring(0, 5);
+  seg7::writeText(seg7::kTop, latestShort.c_str());
+  seg7::clear(seg7::kBot);
 
   Serial.println("OTA-check: new version available, downloading...");
   // showOtaProgress will paint the RGB ring during the download; the
