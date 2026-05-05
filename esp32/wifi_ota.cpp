@@ -260,6 +260,9 @@ void checkAndUpdateFromGithub() {
   client.setInsecure();
   client.setTimeout(20);
 
+  // GitHub release assets reply with a 302 to objects.githubusercontent.com,
+  // so we need httpUpdate to follow redirects (it doesn't by default).
+  httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   httpUpdate.rebootOnUpdate(true);
   httpUpdate.onStart([]() {
     Serial.println("HTTPUpdate: start");
