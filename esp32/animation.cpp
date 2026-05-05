@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "peripherals.h"
 #include "rgb_panel.h"
 #include "seg7.h"
 
@@ -13,6 +14,7 @@ void startupBlink() {
   seg7::writeText(seg7::kTop, "8.8.8.8.8.");
   seg7::writeText(seg7::kBot, "8.8.8.8.8.");
   rgb_panel::setAll(true, false, false);
+  peripherals::buzzerBeep(1200, 20);
   delay(50);
 
   rgb_panel::blank();
@@ -20,169 +22,359 @@ void startupBlink() {
   seg7::clear(seg7::kBot);
 }
 
-// F1 starting-light state machine. Two-player race timer.
+// Two-player F1 starting-light reaction game, ported from src/main.cpp.
 //
-//   kIdle           -> press either button -> kLighting (clears displays)
-//   kLighting       -> 5 columns of 2 LEDs light at 1 s intervals (red);
-//                      once all 10 are on we transition to kHolding
-//   kHolding        -> wait random 200..3000 ms with all LEDs red; pressing
-//                      during this window is a jump start (back to kIdle)
-//   kReacting       -> all LEDs blank, timer running. Each player's first
-//                      button press records their reaction time on their
-//                      own display (A -> top, B -> bottom). Stays here
-//                      until BOTH have pressed, then -> kShowingResult.
-//   kShowingResult  -> results persist on the displays. Pressing either
-//                      button starts a new sequence (which clears them).
-//
-// Rising-edge detection per button so a single physical press doesn't
-// jump multiple states.
+//   IDLE        -> any button -> READY (waiting-for-players animation)
+//   READY       -> per-player "I'm in" press latches that side; once both
+//                  are latched -> LIGHTING (column 1 lit immediately)
+//   LIGHTING    -> 4 more pairs of LEDs light at 1 s intervals; press
+//                  during this window = JUMP_START
+//   WAIT_GO     -> all 10 lit, random 1..4 s hold; press here also =
+//                  JUMP_START. Hold expires -> RACE (lights out)
+//   RACE        -> first press starts a 100 ms grace window for the other
+//                  player to also press -> RACE_GRACE. 3 s with no press
+//                  -> timeout, both displays show "-----".
+//   RACE_GRACE  -> after grace window (or both pressed), reaction times
+//                  are written to each player's display; winner LEDs +
+//                  victory beep -> RESULT
+//   JUMP_START  -> dashes/LEDs show who jumped; loser side lit
+//   RESULT      -> wait both released, enforce minimum display time,
+//                  next single press restarts in READY (with that side
+//                  already latched)
 namespace {
 
-enum class State : uint8_t {
-  kIdle,
-  kLighting,
-  kHolding,
-  kReacting,
-  kShowingResult,
+enum State : uint8_t {
+  IDLE,
+  READY,
+  LIGHTING,
+  WAIT_GO,
+  RACE,
+  RACE_GRACE,
+  RESULT,
+  JUMP_START,
 };
 
-constexpr uint8_t  kColumns          = 5;
-constexpr uint32_t kColumnIntervalMs = 1000;
-constexpr uint32_t kHoldMinMs        = 200;
-constexpr uint32_t kHoldMaxMs        = 3000;
+constexpr uint32_t kRaceGraceMs       = 100;
+constexpr uint32_t kResultDisplayMs   = 2000;
+constexpr uint32_t kDebounceMs        = 20;
+constexpr uint32_t kBorderMs          = 120;
+constexpr uint32_t kRaceTimeoutMs     = 3000;
+constexpr uint8_t  kBorderLen         = 5;        // cells per panel
 
-State    g_state         = State::kIdle;
-uint32_t g_stateStartMs  = 0;
-uint8_t  g_columnsLit    = 0;
-uint32_t g_holdMs        = 0;
-uint32_t g_lightsOffMs   = 0;
-bool     g_prevA         = false;
-bool     g_prevB         = false;
-bool     g_aRecorded     = false;
-bool     g_bRecorded     = false;
-uint32_t g_resultLockUntilMs = 0;   // restart is blocked while millis() < this
+// Game state
+State    g_state          = IDLE;
+uint8_t  g_litCount       = 0;
+uint32_t g_stateTimer     = 0;
+uint32_t g_lightsOutTime  = 0;
+bool     g_jumpA          = false;
+bool     g_jumpB          = false;
+bool     g_waitReleaseA   = false;
+bool     g_waitReleaseB   = false;
+bool     g_readyA         = false;
+bool     g_readyB         = false;
+uint8_t  g_borderFrame    = 0;
+uint32_t g_borderTimer    = 0;
+uint16_t g_ledMask        = 0;
 
-constexpr uint32_t kResultLockMs = 30000;   // "pin result" hold extension
+// Race grace window
+uint32_t g_raceGraceStart = 0;
+bool     g_raceHitA       = false;
+bool     g_raceHitB       = false;
+uint16_t g_raceReactionA  = 9999;
+uint16_t g_raceReactionB  = 9999;
 
-// Bitmask of LEDs to light when `n` columns are on. Columns fill
-// outside-in: col 0 = (#1, #10), col 1 = (#2, #9), col 2 = (#3, #8),
-// col 3 = (#4, #7), col 4 = (#5, #6).
-uint16_t maskForColumns(uint8_t n) {
-  uint16_t out = 0;
-  for (uint8_t c = 0; c < n && c < kColumns; c++) {
-    out |= (1u << c) | (1u << (9 - c));
-  }
-  return out;
+// Debounce state — instant press, delayed release
+bool     g_stableA        = false;
+bool     g_stableB        = false;
+uint32_t g_releaseA       = 0;
+uint32_t g_releaseB       = 0;
+
+// LEDs are lit in pairs: column k (1..5) -> LED k and LED k+5.
+// Bit i in the mask = LED (i+1).
+void setLed(uint8_t led1based, bool on) {
+  if (led1based < 1 || led1based > 10) return;
+  uint16_t bit = (uint16_t)(1u << (led1based - 1));
+  if (on) g_ledMask |= bit;
+  else    g_ledMask &= (uint16_t)~bit;
+  rgb_panel::setRedMask(g_ledMask);
 }
 
-void writeReactionMs(const seg7::Map &display, uint32_t reactionMs, char who) {
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%lu", (unsigned long)reactionMs);
-  seg7::writeText(display, buf);
-  Serial.printf("F1: %c reaction = %lu ms\n", who, (unsigned long)reactionMs);
+void setAllLeds(bool on) {
+  g_ledMask = on ? 0x3FFu : 0u;
+  if (on) rgb_panel::setRedMask(g_ledMask);
+  else    rgb_panel::blank();
+}
+
+void clearDisplays() {
+  seg7::clear(seg7::kTop);
+  seg7::clear(seg7::kBot);
+}
+
+// Render a reaction time (ms, 0..9999) right-aligned. We have 5 cells, so
+// just print the integer; no DP gymnastics needed.
+void showReaction(const seg7::Map &m, uint16_t ms, char who) {
+  char buf[8];
+  if (ms > 9999) ms = 9999;
+  snprintf(buf, sizeof(buf), "%u", (unsigned)ms);
+  seg7::writeText(m, buf);
+  Serial.printf("F1: %c reaction = %u ms\n", who, (unsigned)ms);
+}
+
+void showDash(const seg7::Map &m) {
+  seg7::writeText(m, "-----");
+}
+
+// Chasing dash across the 5 cells of one panel (replaces the
+// raw-segment perimeter comet from the Arduino build, since the seg7
+// helper only exposes character writes).
+void drawBorderFrame(const seg7::Map &m, uint8_t frame) {
+  char buf[6] = "     ";
+  if (frame < kBorderLen) buf[frame] = '-';
+  buf[5] = 0;
+  seg7::writeText(m, buf);
 }
 
 void startSequence(uint32_t now) {
-  rgb_panel::blank();
-  seg7::clear(seg7::kTop);
-  seg7::clear(seg7::kBot);
-  g_columnsLit        = 0;
-  g_aRecorded         = false;
-  g_bRecorded         = false;
-  g_resultLockUntilMs = 0;
-  g_stateStartMs      = now;
-  g_state             = State::kLighting;
-  Serial.println("F1: starting sequence");
+  g_state = LIGHTING;
+  g_litCount = 0;
+  setAllLeds(false);
+  clearDisplays();
+  g_stateTimer = now + 1000;
+  g_jumpA = false;
+  g_jumpB = false;
+  g_waitReleaseA = true;
+  g_waitReleaseB = true;
+  Serial.println("\nF1: --- New round ---");
+}
+
+void enterJumpStart(uint32_t now) {
+  g_state = JUMP_START;
+  g_stateTimer = now;
+  g_waitReleaseA = true;
+  g_waitReleaseB = true;
+  setAllLeds(false);
+  if (g_jumpA && !g_jumpB) {
+    showDash(seg7::kTop);
+    seg7::clear(seg7::kBot);
+    // Loser top, winner = B → light B's LEDs (6..10)
+    for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
+    Serial.println("F1: JUMP START by Player A! Player B wins.");
+  } else if (g_jumpB && !g_jumpA) {
+    showDash(seg7::kBot);
+    seg7::clear(seg7::kTop);
+    for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
+    Serial.println("F1: JUMP START by Player B! Player A wins.");
+  } else {
+    showDash(seg7::kTop);
+    showDash(seg7::kBot);
+    Serial.println("F1: JUMP START by BOTH players! No winner.");
+  }
+  peripherals::buzzerBeep(200, 500);
 }
 
 }  // namespace
 
 void tick(bool aPressed, bool bPressed) {
   const uint32_t now = millis();
-  const bool aJustPressed = aPressed && !g_prevA;
-  const bool bJustPressed = bPressed && !g_prevB;
-  g_prevA = aPressed;
-  g_prevB = bPressed;
-  const bool anyJustPressed = aJustPressed || bJustPressed;
+
+  // Debounce: act on press instantly, delay release by kDebounceMs
+  if (aPressed) { g_stableA = true; g_releaseA = now; }
+  else if (now - g_releaseA >= kDebounceMs) { g_stableA = false; }
+
+  if (bPressed) { g_stableB = true; g_releaseB = now; }
+  else if (now - g_releaseB >= kDebounceMs) { g_stableB = false; }
+
+  bool btnA = g_stableA;
+  bool btnB = g_stableB;
+
+  // After starting a round, ignore each button until it's released
+  // (RESULT, JUMP_START, RACE_GRACE manage waitRelease internally).
+  if (g_state != RESULT && g_state != JUMP_START && g_state != RACE_GRACE) {
+    if (g_waitReleaseA) {
+      if (!btnA) g_waitReleaseA = false;
+      btnA = false;
+    }
+    if (g_waitReleaseB) {
+      if (!btnB) g_waitReleaseB = false;
+      btnB = false;
+    }
+  }
 
   switch (g_state) {
-    case State::kIdle:
-      if (anyJustPressed) startSequence(now);
-      break;
 
-    case State::kLighting: {
-      uint32_t elapsed = now - g_stateStartMs;
-      uint8_t target = (uint8_t)(elapsed / kColumnIntervalMs) + 1;
-      if (target > kColumns) target = kColumns;
-      if (target != g_columnsLit) {
-        g_columnsLit = target;
-        rgb_panel::setRedMask(maskForColumns(g_columnsLit));
-      }
-      if (g_columnsLit >= kColumns &&
-          now - g_stateStartMs >= kColumns * kColumnIntervalMs) {
-        g_holdMs = (uint32_t)random((long)kHoldMinMs, (long)kHoldMaxMs + 1);
-        g_stateStartMs = now;
-        g_state = State::kHolding;
-        Serial.printf("F1: holding for %lu ms\n", (unsigned long)g_holdMs);
-      }
-      break;
-    }
-
-    case State::kHolding:
-      if (anyJustPressed) {
-        Serial.println("F1: jump start! resetting");
-        rgb_panel::blank();
-        g_state = State::kIdle;
-        break;
-      }
-      if (now - g_stateStartMs >= g_holdMs) {
-        rgb_panel::blank();
-        g_lightsOffMs = millis();
-        g_state = State::kReacting;
-        Serial.println("F1: GO!");
+    case IDLE:
+      if (btnA || btnB) {
+        g_readyA = btnA;
+        g_readyB = btnB;
+        g_borderFrame = 0;
+        g_borderTimer = now;
+        g_state = READY;
       }
       break;
 
-    case State::kReacting: {
-      uint32_t reaction = now - g_lightsOffMs;
-      if (aJustPressed && !g_aRecorded) {
-        g_aRecorded = true;
-        writeReactionMs(seg7::kTop, reaction, 'A');
+    case READY: {
+      if (btnA && !g_readyA) g_readyA = true;
+      if (btnB && !g_readyB) g_readyB = true;
+
+      if (now - g_borderTimer >= kBorderMs) {
+        g_borderTimer = now;
+        g_borderFrame = (uint8_t)((g_borderFrame + 1) % kBorderLen);
+
+        if (!g_readyA) drawBorderFrame(seg7::kTop, g_borderFrame);
+        else           seg7::clear(seg7::kTop);
+
+        if (!g_readyB) drawBorderFrame(seg7::kBot, g_borderFrame);
+        else           seg7::clear(seg7::kBot);
       }
-      if (bJustPressed && !g_bRecorded) {
-        g_bRecorded = true;
-        writeReactionMs(seg7::kBot, reaction, 'B');
-      }
-      if (g_aRecorded && g_bRecorded) {
-        g_state = State::kShowingResult;
+
+      if (g_readyA && g_readyB) {
+        Serial.println("F1: Both players ready!");
+        startSequence(now);
+        // First pair already lit (matches src/main.cpp behaviour).
+        g_litCount = 1;
+        setLed(1, true);
+        setLed(6, true);
+        peripherals::buzzerBeep(1000, 200);
       }
       break;
     }
 
-    case State::kShowingResult: {
-      // Pressing BOTH buttons together (or holding them) "pins" the
-      // results: the next 30 s of single-button presses are ignored, so
-      // you can examine the reaction times without one accidental tap
-      // wiping them. Each fresh both-press refreshes the lock window.
-      if (aPressed && bPressed) {
-        if (g_resultLockUntilMs - now != kResultLockMs) {  // log once per refresh
-          Serial.printf("F1: result locked for %lu ms\n",
-                        (unsigned long)kResultLockMs);
+    case LIGHTING:
+      if (btnA) g_jumpA = true;
+      if (btnB) g_jumpB = true;
+      if (g_jumpA || g_jumpB) { enterJumpStart(now); break; }
+
+      if (now >= g_stateTimer) {
+        g_litCount++;
+        setLed(g_litCount, true);
+        setLed(g_litCount + 5, true);
+        peripherals::buzzerBeep(1000, 200);
+
+        if (g_litCount >= 5) {
+          g_state = WAIT_GO;
+          g_stateTimer = now + 1000 + (uint32_t)random(3000);
+        } else {
+          g_stateTimer = now + 1000;
         }
-        g_resultLockUntilMs = now + kResultLockMs;
-        break;
       }
-      if (now < g_resultLockUntilMs) break;       // still in lock window
-      if (anyJustPressed) startSequence(now);
+      break;
+
+    case WAIT_GO:
+      if (btnA) g_jumpA = true;
+      if (btnB) g_jumpB = true;
+      if (g_jumpA || g_jumpB) { enterJumpStart(now); break; }
+
+      if (now >= g_stateTimer) {
+        // LIGHTS OUT — GO!
+        setAllLeds(false);
+        clearDisplays();
+        g_lightsOutTime = now;
+        g_state = RACE;
+        Serial.println("F1: LIGHTS OUT! GO!");
+      }
+      break;
+
+    case RACE: {
+      if (btnA || btnB) {
+        g_raceHitA = btnA;
+        g_raceHitB = btnB;
+        g_raceReactionA = btnA ? (uint16_t)(now - g_lightsOutTime) : 9999;
+        g_raceReactionB = btnB ? (uint16_t)(now - g_lightsOutTime) : 9999;
+
+        if (g_raceHitA && g_raceHitB) {
+          // Both pressed on the same tick — skip grace window.
+          g_state = RACE_GRACE;
+          g_raceGraceStart = now - kRaceGraceMs;
+        } else {
+          g_state = RACE_GRACE;
+          g_raceGraceStart = now;
+        }
+      }
+
+      if (now - g_lightsOutTime > kRaceTimeoutMs) {
+        showDash(seg7::kTop);
+        showDash(seg7::kBot);
+        g_state = RESULT;
+        g_stateTimer = now;
+        g_waitReleaseA = true;
+        g_waitReleaseB = true;
+        Serial.println("F1: TIMEOUT! Nobody pressed.");
+      }
       break;
     }
+
+    case RACE_GRACE: {
+      if (!g_raceHitA && btnA) {
+        g_raceHitA = true;
+        g_raceReactionA = (uint16_t)(now - g_lightsOutTime);
+      }
+      if (!g_raceHitB && btnB) {
+        g_raceHitB = true;
+        g_raceReactionB = (uint16_t)(now - g_lightsOutTime);
+      }
+
+      if ((now - g_raceGraceStart >= kRaceGraceMs) ||
+          (g_raceHitA && g_raceHitB)) {
+        if (g_raceHitA) showReaction(seg7::kTop, g_raceReactionA, 'A');
+        else            showDash(seg7::kTop);
+        if (g_raceHitB) showReaction(seg7::kBot, g_raceReactionB, 'B');
+        else            showDash(seg7::kBot);
+
+        if (g_raceReactionA < g_raceReactionB) {
+          for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
+          peripherals::buzzerBeep(1000, 80);
+          peripherals::buzzerBeep(1300, 80);
+          peripherals::buzzerBeep(1600, 120);
+          Serial.printf("F1: Player A wins! A=%u ms B=%s\n",
+                        (unsigned)g_raceReactionA,
+                        g_raceHitB ? String((unsigned)g_raceReactionB).c_str()
+                                   : "(no press)");
+        } else if (g_raceReactionB < g_raceReactionA) {
+          for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
+          peripherals::buzzerBeep(1000, 80);
+          peripherals::buzzerBeep(1300, 80);
+          peripherals::buzzerBeep(1600, 120);
+          Serial.printf("F1: Player B wins! A=%s B=%u ms\n",
+                        g_raceHitA ? String((unsigned)g_raceReactionA).c_str()
+                                   : "(no press)",
+                        (unsigned)g_raceReactionB);
+        } else {
+          setAllLeds(true);
+          peripherals::buzzerBeep(800, 200);
+          Serial.printf("F1: TIE! Both at %u ms\n",
+                        (unsigned)g_raceReactionA);
+        }
+
+        g_state = RESULT;
+        g_stateTimer = millis();   // delays in buzzer may have advanced clock
+        g_waitReleaseA = true;
+        g_waitReleaseB = true;
+      }
+      break;
+    }
+
+    case JUMP_START:
+    case RESULT:
+      // Wait for both buttons to be released first.
+      if (g_waitReleaseA && !btnA) g_waitReleaseA = false;
+      if (g_waitReleaseB && !btnB) g_waitReleaseB = false;
+      if (g_waitReleaseA || g_waitReleaseB) break;
+
+      // Enforce minimum display time before accepting restart.
+      if (now - g_stateTimer < kResultDisplayMs) break;
+
+      if (btnA || btnB) {
+        setAllLeds(false);
+        clearDisplays();
+        g_readyA = btnA;
+        g_readyB = btnB;
+        g_borderFrame = 0;
+        g_borderTimer = now;
+        g_state = READY;
+      }
+      break;
   }
 }
 
 }  // namespace animation
-
-
-
-
-
 
