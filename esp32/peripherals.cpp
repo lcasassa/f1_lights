@@ -34,6 +34,9 @@ bool anyButtonPressed() {
   return (digitalRead(BTN_A_PIN) == LOW) || (digitalRead(BTN_B_PIN) == LOW);
 }
 
+bool buttonA() { return digitalRead(BTN_A_PIN) == LOW; }
+bool buttonB() { return digitalRead(BTN_B_PIN) == LOW; }
+
 bool bothButtonsPressed() {
   return (digitalRead(BTN_A_PIN) == LOW) && (digitalRead(BTN_B_PIN) == LOW);
 }

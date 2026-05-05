@@ -26,6 +26,10 @@ void buzzerBeep(uint32_t freq, uint32_t ms);
 // True while either of the two front-panel buttons is held down.
 bool anyButtonPressed();
 
+// Per-button live state (LOW = pressed via internal pull-up).
+bool buttonA();
+bool buttonB();
+
 // True while BOTH front-panel buttons are held down (used at boot to
 // arm the AP-mode fallback if WiFi STA fails to associate).
 bool bothButtonsPressed();

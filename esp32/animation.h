@@ -9,11 +9,13 @@ namespace animation {
 void startupBlink();
 
 // F1 starting-light state machine. Call from loop() every iteration with
-// the live "any button pressed" state. The first rising edge starts the
-// 5-column lights-on sequence; the lights then extinguish after a random
-// hold and the next press is timed in milliseconds and shown on the top
-// 7-seg display. A press during the hold is treated as a jump start.
-void tick(bool pressed);
+// the live state of both front-panel buttons. The first rising edge on
+// either starts the 5-column lights-on sequence; after the random hold,
+// each player's reaction time is recorded independently — A → top
+// 7-seg, B → bottom 7-seg — and stays on display until the next
+// sequence is triggered. A press during the hold is treated as a jump
+// start.
+void tick(bool aPressed, bool bPressed);
 
 }  // namespace animation
 

@@ -96,7 +96,7 @@ void loop() {
   wifi_ota::handleOta();
 
   if (!wifi_ota::inProgress) {
-    animation::tick(peripherals::anyButtonPressed());
+    animation::tick(peripherals::buttonA(), peripherals::buttonB());
   }
 
   // Auto-reconnect only in STA mode; the provisioning portal manages its
