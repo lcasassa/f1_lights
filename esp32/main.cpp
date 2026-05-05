@@ -125,14 +125,6 @@ void loop() {
       seg7::clear(seg7::kTop);
       seg7::clear(seg7::kBot);
 
-      // "Going to sleep" indicator: blink LED #1 red 3 times.
-      for (uint8_t i = 0; i < 3; i++) {
-        rgb_panel::setRedMask(0x001);
-        delay(120);
-        rgb_panel::blank();
-        delay(120);
-      }
-
       // Buttons use INPUT_PULLUP, so pressed = LOW. Wake on low level.
       gpio_wakeup_enable((gpio_num_t)BTN_A_PIN, GPIO_INTR_LOW_LEVEL);
       gpio_wakeup_enable((gpio_num_t)BTN_B_PIN, GPIO_INTR_LOW_LEVEL);
