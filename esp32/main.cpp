@@ -8,6 +8,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_sleep.h>
+#include <driver/gpio.h>
 
 #include "animation.h"
 #include "ht16k33.h"
@@ -93,10 +95,48 @@ void setup() {
 }
 
 void loop() {
+  static uint32_t s_lastActivityMs = 0;
+  static bool     s_activitySeeded = false;
+  constexpr uint32_t kIdleSleepMs = 60000;   // 1 minute
+
+  if (!s_activitySeeded) {
+    s_lastActivityMs = millis();   // setup() may have taken >60 s (WiFi + OTA fetch)
+    s_activitySeeded = true;
+  }
+
   wifi_ota::handleOta();
 
   if (!wifi_ota::inProgress) {
-    animation::tick(peripherals::buttonA(), peripherals::buttonB());
+    const bool a = peripherals::buttonA();
+    const bool b = peripherals::buttonB();
+    animation::tick(a, b);
+
+    const uint32_t now = millis();
+    if (a || b) {
+      s_lastActivityMs = now;
+    } else if (!wifi_ota::inApMode &&
+               (now - s_lastActivityMs) >= kIdleSleepMs) {
+      // Idle too long → light sleep until either button is pressed.
+      // Light sleep keeps RAM + program state intact; the OTA receiver
+      // and game state machine pick up exactly where they left off.
+      Serial.println("idle: 60 s without input, entering light sleep");
+      Serial.flush();
+      rgb_panel::blank();
+      seg7::clear(seg7::kTop);
+      seg7::clear(seg7::kBot);
+
+      // Buttons use INPUT_PULLUP, so pressed = LOW. Wake on low level.
+      gpio_wakeup_enable((gpio_num_t)BTN_A_PIN, GPIO_INTR_LOW_LEVEL);
+      gpio_wakeup_enable((gpio_num_t)BTN_B_PIN, GPIO_INTR_LOW_LEVEL);
+      esp_sleep_enable_gpio_wakeup();
+
+      esp_light_sleep_start();
+
+      Serial.println("idle: woke up from light sleep");
+      s_lastActivityMs = millis();
+    }
+  } else {
+    s_lastActivityMs = millis();   // OTA traffic counts as activity
   }
 
   // Auto-reconnect only in STA mode; the provisioning portal manages its
