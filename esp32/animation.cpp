@@ -156,13 +156,14 @@ void enterJumpStart(uint32_t now) {
   if (g_jumpA && !g_jumpB) {
     showDash(seg7::kTop);
     seg7::clear(seg7::kBot);
-    // Loser top, winner = B → light B's LEDs (6..10)
-    for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
+    // Winner = B → light B's side LEDs (1..5)
+    for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
     Serial.println("F1: JUMP START by Player A! Player B wins.");
   } else if (g_jumpB && !g_jumpA) {
     showDash(seg7::kBot);
     seg7::clear(seg7::kTop);
-    for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
+    // Winner = A → light A's side LEDs (6..10)
+    for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
     Serial.println("F1: JUMP START by Player B! Player A wins.");
   } else {
     showDash(seg7::kTop);
@@ -230,10 +231,10 @@ void tick(bool aPressed, bool bPressed) {
       if (g_readyA && g_readyB) {
         Serial.println("F1: Both players ready!");
         startSequence(now);
-        // First pair already lit (matches src/main.cpp behaviour).
+        // First pair already lit (outside-in: 1 & 10, 2 & 9, ...).
         g_litCount = 1;
         setLed(1, true);
-        setLed(6, true);
+        setLed(10, true);
         peripherals::buzzerBeep(1000, 200);
       }
       break;
@@ -246,8 +247,9 @@ void tick(bool aPressed, bool bPressed) {
 
       if (now >= g_stateTimer) {
         g_litCount++;
+        // Outside-in pairs: (1,10), (2,9), (3,8), (4,7), (5,6).
         setLed(g_litCount, true);
-        setLed(g_litCount + 5, true);
+        setLed((uint8_t)(11 - g_litCount), true);
         peripherals::buzzerBeep(1000, 200);
 
         if (g_litCount >= 5) {
@@ -321,7 +323,7 @@ void tick(bool aPressed, bool bPressed) {
         else            showDash(seg7::kBot);
 
         if (g_raceReactionA < g_raceReactionB) {
-          for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
+          for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
           peripherals::buzzerBeep(1000, 80);
           peripherals::buzzerBeep(1300, 80);
           peripherals::buzzerBeep(1600, 120);
@@ -330,7 +332,7 @@ void tick(bool aPressed, bool bPressed) {
                         g_raceHitB ? String((unsigned)g_raceReactionB).c_str()
                                    : "(no press)");
         } else if (g_raceReactionB < g_raceReactionA) {
-          for (uint8_t i = 6; i <= 10; i++) setLed(i, true);
+          for (uint8_t i = 1; i <= 5; i++) setLed(i, true);
           peripherals::buzzerBeep(1000, 80);
           peripherals::buzzerBeep(1300, 80);
           peripherals::buzzerBeep(1600, 120);
@@ -377,4 +379,9 @@ void tick(bool aPressed, bool bPressed) {
 }
 
 }  // namespace animation
+
+
+
+
+
 
