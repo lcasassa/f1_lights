@@ -118,6 +118,18 @@ void tickRandomRed() {
   flush(bits, mask);
 }
 
+void setRedMask(uint16_t ledMask) {
+  uint16_t bits[4] = {0, 0, 0, 0};
+  uint16_t mask[4]; rgbMaskByDigit(mask);
+  for (uint8_t i = 0; i < kNumLeds; i++) {
+    if (ledMask & (1u << i)) {
+      const Led &led = kLeds[i];
+      bits[led.digit] |= led.rMask;
+    }
+  }
+  flush(bits, mask);
+}
+
 void showOtaProgress(int percent) {
   if (percent < 0)   percent = 0;
   if (percent > 100) percent = 100;

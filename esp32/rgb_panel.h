@@ -46,6 +46,11 @@ void setBusy(uint8_t ledIndex, bool on);
 // about per-digit segment masks.
 void setLed(uint8_t ledIndex, bool r, bool g, bool b);
 
+// Light an arbitrary subset of LEDs red (bit `i` in `mask` = LED `i` on)
+// in a single I²C transaction. All other RGB-controlled bits blanked.
+// Useful for sequencer animations (F1 starting lights, …).
+void setRedMask(uint16_t mask);
+
 // One frame of the random per-LED red flicker (50/50 per LED). Call from
 // a paced loop — does no timing of its own.
 void tickRandomRed();
