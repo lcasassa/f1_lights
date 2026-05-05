@@ -110,12 +110,14 @@ void clearDisplays() {
   seg7::clear(seg7::kBot);
 }
 
-// Render a reaction time (ms, 0..9999) right-aligned. We have 5 cells, so
-// just print the integer; no DP gymnastics needed.
+// Render a reaction time (ms, 0..9999) as seconds with ms precision,
+// e.g. 123 ms -> "0.123", 1234 ms -> "1.234". The '.' folds into the
+// previous cell's DP so the whole thing fits in 4 of our 5 cells.
 void showReaction(const seg7::Map &m, uint16_t ms, char who) {
   char buf[8];
   if (ms > 9999) ms = 9999;
-  snprintf(buf, sizeof(buf), "%u", (unsigned)ms);
+  snprintf(buf, sizeof(buf), "%u.%03u",
+           (unsigned)(ms / 1000), (unsigned)(ms % 1000));
   seg7::writeText(m, buf);
   Serial.printf("F1: %c reaction = %u ms\n", who, (unsigned)ms);
 }
