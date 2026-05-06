@@ -1,4 +1,4 @@
-.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev build-screen upload-screen build-screen-diag upload-screen-diag build-screen-dino upload-screen-dino build-esp32 upload-esp32 monitor-esp32 upload-esp32-ota upload-esp32-ota-full upload-esp32-segscan
+.PHONY: help build upload monitor clean build-test upload-test monitor-test sim sim-clean test display wasm web web-dev build-screen upload-screen build-screen-diag upload-screen-diag build-screen-dino upload-screen-dino build-esp32 upload-esp32 monitor-esp32 upload-esp32-ota upload-esp32-ota-full upload-esp32-segscan build-tictactoe upload-tictactoe upload-tictactoe-ota upload-tictactoe-ota-full build-esp32-all
 
 # Auto-discover USB port (can override with: make upload PORT=/dev/cu.usbserial-XXXX)
 PORT ?= $(shell ls /dev/cu.usbserial-* 2>/dev/null | head -n 1)
@@ -37,6 +37,12 @@ help:
 	@echo "  make monitor-esp32     - Open serial monitor for ESP32-C3"
 	@echo "  make upload-esp32-ota  - Push firmware over WiFi (lean: no GitHub OTA)"
 	@echo "  make upload-esp32-ota-full - Push firmware over WiFi (incl. GitHub OTA)"
+	@echo ""
+	@echo "ESP32-C3 TIC-TAC-TOE BOARD:"
+	@echo "  make build-tictactoe          - Compile tic-tac-toe firmware"
+	@echo "  make upload-tictactoe         - USB upload tic-tac-toe firmware"
+	@echo "  make upload-tictactoe-ota     - WiFi upload (lean: no GitHub OTA)"
+	@echo "  make upload-tictactoe-ota-full- WiFi upload (incl. GitHub OTA)"
 	@echo ""
 	@echo "DESKTOP SIMULATION (Python):"
 	@echo "  make sim               - Build shared library for Python simulation"
@@ -114,9 +120,15 @@ upload-screen-dino: build-screen-dino
 ESP32_FW_VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 export PLATFORMIO_BUILD_FLAGS = -DFIRMWARE_VERSION=\"$(ESP32_FW_VERSION)\"
 
+# PlatformIO already compiles each env in parallel using all CPU cores
+# (SCons auto-detects). Override with e.g.  make build-tictactoe JOBS=4
+# to throttle, or  JOBS=1  to serialize for cleaner error messages.
+JOBS ?=
+PIO_JOBS = $(if $(JOBS),--jobs $(JOBS),)
+
 build-esp32:
 	@echo "Building ESP32-C3 Super Mini blink firmware (fw=$(ESP32_FW_VERSION))..."
-	pio run -e esp32-c3-supermini
+	pio run -e esp32-c3-supermini $(PIO_JOBS)
 
 upload-esp32: build-esp32
 	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
@@ -169,6 +181,38 @@ upload-esp32-segscan:
 	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
 	@echo "Segment-scan upload (USB) to $(ESP32_PORT) ..."
 	pio run -e esp32-c3-supermini-segscan -t upload --upload-port $(ESP32_PORT)
+
+# ── ESP32-C3 tic-tac-toe board ──────────────────────────────────────────────
+# Same MCU + I2C wiring as the F1 board, but the firmware in
+# esp32-tictactoe/ only drives one RGB LED (digit 4: R=G2 / G=D / B=DP)
+# and has no buttons or 7-seg displays. OTA host defaults to the same
+# mDNS name; override TICTACTOE_OTA_HOST=<ip-or-name> if it's different.
+TICTACTOE_OTA_HOST ?= $(OTA_HOST)
+
+build-tictactoe:
+	@echo "Building tic-tac-toe firmware (fw=$(ESP32_FW_VERSION))..."
+	pio run -e esp32-c3-tictactoe $(PIO_JOBS)
+
+upload-tictactoe: build-tictactoe
+	@if [ -z "$(ESP32_PORT)" ]; then echo $(ESP32_PORT_ERROR); exit 1; fi
+	@echo "Uploading tic-tac-toe firmware (USB) to $(ESP32_PORT)..."
+	pio run -e esp32-c3-tictactoe -t upload --upload-port $(ESP32_PORT)
+
+upload-tictactoe-ota:
+	@echo "OTA upload (lean, fw=$(ESP32_FW_VERSION)) to $(TICTACTOE_OTA_HOST) ..."
+	pio run -e esp32-c3-tictactoe-ota-fast -t upload --upload-port $(TICTACTOE_OTA_HOST)
+
+upload-tictactoe-ota-full:
+	@echo "OTA upload (full, fw=$(ESP32_FW_VERSION), w/ GitHub self-updater) to $(TICTACTOE_OTA_HOST) ..."
+	pio run -e esp32-c3-tictactoe-ota -t upload --upload-port $(TICTACTOE_OTA_HOST)
+
+# Build both ESP32 firmwares. PlatformIO runs the two envs sequentially
+# but parallelizes the compile step within each env across all CPU
+# cores (override with JOBS=N). For full env-level parallelism instead,
+# run:   make -j2 build-esp32 build-tictactoe
+build-esp32-all:
+	@echo "Building both ESP32 firmwares (fw=$(ESP32_FW_VERSION))..."
+	pio run -e esp32-c3-supermini -e esp32-c3-tictactoe $(PIO_JOBS)
 
 all: build upload
 	@echo "Done! Open another terminal to monitor:"
