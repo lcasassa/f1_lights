@@ -1,0 +1,22 @@
+{
+  "slug": "snake-attack",
+  "name": "Snake attack",
+  "emoji": "✨",
+  "boards": [
+    "screen",
+    "controller"
+  ],
+  "description": "A snake that eats apples",
+  "createdAt": "2026-09-27T04:16:08.888Z",
+  "revisions": [
+    {
+      "at": "2026-09-27T04:18:42.181Z",
+      "instruction": "A snake that grows when it eats a glowing apple. Green snake, red apple, gets faster every 5 apples.",
+      "compiled": true
+    }
+  ],
+  "env": "studio-snake-attack",
+  "builtIn": false,
+  "compiled": true,
+  "updatedAt": "2026-09-27T04:18:42.181Z"
+}
